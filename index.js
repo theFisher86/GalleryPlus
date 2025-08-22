@@ -1,163 +1,222 @@
-// GalleryPlus – Dice-style settings; viewer polish only; guard /api/images/list.
-// Works on builds without SillyTavern.onExtensionSettings.
+/* GalleryPlus – robust for older ST builds (no onExtensionSettings needed) */
+/* global SillyTavern */
 
-(function () {
-  const MODULE = 'GalleryPlus';
-  const st = () => window.SillyTavern;
-  const ctx = () => st()?.getContext?.() || {};
-  const log = (...a) => console.log('[GalleryPlus]', ...a);
+(() => {
+  const EXT_ID = 'GalleryPlus';
+  const ST = window.SillyTavern;
+  if (!ST) {
+    console.warn('[GalleryPlus] SillyTavern not found');
+    return;
+  }
 
-  // ---- defaults & safe settings bag ---------------------------------------
-  const DEFAULTS = Object.freeze({
+  // ---- Settings bootstrap ---------------------------------------------------
+  const ctx = ST.getContext?.() || {};
+  ctx.extensionSettings ??= {};
+  const store = (ctx.extensionSettings[EXT_ID] ??= {
     enabled: true,
+    diag: Date.now(),
     openHeight: 800,
     hoverZoom: true,
-    hoverZoomScale: 1.08,
+    hoverZoomScale: 1.08
   });
 
-  function ensureSettings() {
-    const bag = ctx().extensionSettings || (ctx().extensionSettings = {});
-    if (!bag[MODULE]) bag[MODULE] = { ...DEFAULTS };
-    for (const k of Object.keys(DEFAULTS)) {
-      if (!(k in bag[MODULE])) bag[MODULE][k] = DEFAULTS[k];
+  console.log('[GalleryPlus] boot', { store });
+
+  function save() {
+    try {
+      ST.saveSettingsDebounced?.();
+    } catch (e) {
+      /* noop */
     }
-    return bag[MODULE];
   }
-  const S = ensureSettings();
-  ctx().saveSettingsDebounced?.();
 
-  // ---- 0) Fetch shim so /show-gallery never crashes -----------------------
-  // If /api/images/list fails or returns non-array, return [] instead.
-  (function installFetchShim(){
-    const orig = window.fetch;
-    if (!orig || orig.__gpWrapped) return;
-    window.fetch = async function (...args) {
-      const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-      let res;
-      try {
-        res = await orig.apply(this, args);
-      } catch (e) {
-        if (url.includes('/api/images/list')) {
-          return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' }});
-        }
-        throw e;
+  // Apply CSS custom properties
+  function applyCssVars() {
+    const id = 'gp-css-vars';
+    let tag = document.getElementById(id);
+    if (!tag) {
+      tag = document.createElement('style');
+      tag.id = id;
+      document.head.appendChild(tag);
+    }
+    const h = Math.max(220, Number(store.openHeight) || 800);
+    const s = Math.max(1, Math.min(1.25, Number(store.hoverZoomScale) || 1.08));
+    tag.textContent = `
+      :root {
+        --gp-open-height: ${h}px;
+        --gp-zoom-scale: ${s};
       }
+    `;
+  }
+  applyCssVars();
 
-      try {
-        if (url.includes('/api/images/list')) {
-          // Bad status? provide empty list so gallery UI can still render.
-          if (!res.ok) return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' }});
-          const clone = res.clone();
-          const json = await clone.json().catch(() => null);
-          if (!Array.isArray(json)) {
-            return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' }});
-          }
-        }
-      } catch (_) {
-        // Fall through to original res if anything unexpected
-      }
-      return res;
+  // Dice-style: our settings.html is static. We attach when it appears.
+  const SETTINGS_ROOT = '#gp-settings-root';
+
+  const settingsObserver = new MutationObserver(() => {
+    const root = document.querySelector(SETTINGS_ROOT);
+    if (!root || root.__gpMounted) return;
+    root.__gpMounted = true;
+    console.log('[GalleryPlus] settings panel detected');
+
+    const $ = (sel) => root.querySelector(sel);
+
+    $('#gp-enabled').checked = !!store.enabled;
+    $('#gp-openHeight').value = store.openHeight;
+    $('#gp-hoverZoom').checked = !!store.hoverZoom;
+    $('#gp-hoverZoomScale').value = store.hoverZoomScale;
+
+    const syncOut = () => {
+      const oh = Number($('#gp-openHeight').value) || store.openHeight;
+      const sc = Number($('#gp-hoverZoomScale').value) || store.hoverZoomScale;
+      $('#gp-openHeightValue').textContent = `${oh}px`;
+      $('#gp-hoverZoomScaleValue').textContent = sc.toFixed(2);
     };
-    window.fetch.__gpWrapped = true;
-    log('fetch shim active');
-  })();
+    syncOut();
 
-  // ---- 1) Viewer polish (do NOT modify gallery list window) ---------------
-  function enhanceImageViewer(win) {
-    if (!win || win.__gpReady || !ensureSettings().enabled) return;
-    win.__gpReady = true;
+    root.addEventListener('input', (e) => {
+      if (e.target.id === 'gp-enabled') store.enabled = e.target.checked;
+      if (e.target.id === 'gp-openHeight') store.openHeight = Math.max(220, Math.min(4000, parseInt(e.target.value || 800, 10)));
+      if (e.target.id === 'gp-hoverZoom') store.hoverZoom = e.target.checked;
+      if (e.target.id === 'gp-hoverZoomScale') store.hoverZoomScale = Math.max(1.0, Math.min(1.25, parseFloat(e.target.value || 1.08)));
+      syncOut();
+      applyCssVars();
+      save();
+    });
+  });
+  settingsObserver.observe(document.body, { childList: true, subtree: true });
 
-    // Header
-    const header = document.createElement('div');
-    header.className = 'gp-header';
-    header.textContent = 'GalleryPlus';
-    win.insertBefore(header, win.firstChild);
+  // ---- Gallery list: pin pagination to bottom -------------------------------
+  function fixGalleryList(win) {
+    try {
+      const dragGallery = win.querySelector('#dragGallery');
+      if (!dragGallery) return;
 
-    // Find the image element the built-in viewer inserts
-    const img = win.querySelector('img');
-    if (!img) return;
+      // Calculate available height from the top of #dragGallery to the bottom of the window
+      const winRect = win.getBoundingClientRect();
+      const dgRect = dragGallery.getBoundingClientRect();
+      const available = Math.max(300, Math.floor(win.clientHeight - (dgRect.top - winRect.top) - 8));
+      dragGallery.style.height = available + 'px';
 
-    const s = ensureSettings();
-    img.style.maxHeight = `${Number(s.openHeight) || 800}px`;
-    img.style.width = '100%';
-    img.style.height = 'auto';
-    img.style.objectFit = 'contain';
-    img.style.transition = 'transform 160ms ease';
+      const g = dragGallery.querySelector('.nGY2Gallery');
+      const sub = dragGallery.querySelector('.nGY2GallerySub');
+      const bottom = dragGallery.querySelector('.nGY2GalleryBottom');
+      if (g && sub && bottom) {
+        g.style.display = 'flex';
+        g.style.flexDirection = 'column';
+        g.style.height = '100%';
+        g.style.position = 'relative';
 
-    if (s.hoverZoom) {
-      const maxScale = Number(s.hoverZoomScale) || 1.08;
-      let rect = null;
-      const onEnter = () => { rect = img.getBoundingClientRect(); img.style.transform = `scale(${maxScale})`; };
-      const onMove  = (e) => {
-        if (!rect) return;
-        const nx = (e.clientX - rect.left) / rect.width - 0.5;
-        const ny = (e.clientY - rect.top)  / rect.height - 0.5;
-        img.style.transform = `translate(${-nx*6}%, ${-ny*6}%) scale(${maxScale})`;
-      };
-      const onLeave = () => { rect = null; img.style.transform = ''; };
-      img.addEventListener('mouseenter', onEnter, { passive: true });
-      img.addEventListener('mousemove',  onMove,  { passive: true });
-      img.addEventListener('mouseleave', onLeave, { passive: true });
+        sub.style.flex = '1 1 auto';
+        sub.style.height = 'auto';
+        sub.style.overflow = 'auto';
+
+        bottom.style.flex = '0 0 auto';
+        bottom.style.position = 'sticky';
+        bottom.style.bottom = '0';
+        bottom.style.padding = '6px 0';
+      }
+      console.log('[GalleryPlus] gallery list fixed');
+    } catch (err) {
+      console.warn('[GalleryPlus] fixGalleryList error', err);
     }
   }
 
-  // Observe windows; only enhance popups (class .galleryImageDraggable)
-  const mo = new MutationObserver((muts) => {
+  // React when the gallery window is added
+  const listObserver = new MutationObserver((muts) => {
     for (const m of muts) {
-      m.addedNodes?.forEach((n) => {
-        if (n.nodeType !== 1) return;
-        const viewer = n.matches?.('.galleryImageDraggable') ? n : n.querySelector?.('.galleryImageDraggable');
-        if (viewer) enhanceImageViewer(viewer);
-      });
+      for (const n of m.addedNodes) {
+        if (!(n instanceof HTMLElement)) continue;
+        if (n.id === 'gallery') {
+          // Defer a tick so nGY2 can lay out thumbnails first
+          setTimeout(() => fixGalleryList(n), 0);
+        }
+      }
     }
   });
+  listObserver.observe(document.body, { childList: true, subtree: true });
 
-  // ---- 2) Bind settings.html (Dice-style; no ST API needed) --------------
-  function bindSettingsPanel(root) {
-    if (!root || root.__gpBound) return false;
-    const enabledEl = root.querySelector('#gp-enabled');
-    const hEl = root.querySelector('#gp-openHeight');
-    const hzEl = root.querySelector('#gp-hoverZoom');
-    const hzsEl = root.querySelector('#gp-hoverZoomScale');
-    if (!enabledEl || !hEl || !hzEl || !hzsEl) return false;
+  // ---- Image viewer: gradient header + hover zoom (no wrappers) -------------
+  function enhanceViewer(win) {
+    try {
+      // Kill any leftover wrappers from earlier versions
+      win.querySelectorAll('.gp-scroll').forEach((el) => el.remove());
 
-    const s = ensureSettings();
-    enabledEl.checked = !!s.enabled;
-    hEl.value = s.openHeight;
-    hzEl.checked = !!s.hoverZoom;
-    hzsEl.value = s.hoverZoomScale;
+      // Header pill
+      if (!win.querySelector('.gp-header')) {
+        const hdr = document.createElement('div');
+        hdr.className = 'gp-header';
+        hdr.textContent = 'GalleryPlus';
+        win.insertBefore(hdr, win.firstChild);
+      }
 
-    const save = () => ctx().saveSettingsDebounced?.();
+      // Default height on open
+      if (store.openHeight) {
+        win.style.height = Math.max(220, Number(store.openHeight) || 800) + 'px';
+      }
 
-    enabledEl.addEventListener('change', e => { s.enabled = e.target.checked; save(); });
-    hEl.addEventListener('change', e => { s.openHeight = Math.max(400, Math.min(2400, Number(e.target.value)||800)); save(); });
-    hzEl.addEventListener('change', e => { s.hoverZoom = e.target.checked; save(); });
-    hzsEl.addEventListener('change', e => { let v = Number(e.target.value)||1.08; s.hoverZoomScale = Math.max(1.01, Math.min(1.5, v)); save(); });
+      // Hover zoom
+      const img = win.querySelector('img');
+      if (img && store.hoverZoom) {
+        const scale = Number(store.hoverZoomScale) || 1.08;
+        const maxShift = 12; // px
+        const host = win;
 
-    root.__gpBound = true;
-    log('settings panel bound');
-    return true;
+        img.style.transition = 'transform 120ms ease-out';
+        img.style.willChange = 'transform';
+
+        const onMove = (e) => {
+          const r = host.getBoundingClientRect();
+          const x = (e.clientX - r.left) / r.width;
+          const y = (e.clientY - r.top) / r.height;
+          const tx = (0.5 - x) * maxShift; // inverse movement
+          const ty = (0.5 - y) * maxShift;
+          img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+        };
+        const onLeave = () => {
+          img.style.transform = '';
+        };
+
+        host.addEventListener('mousemove', onMove);
+        host.addEventListener('mouseleave', onLeave);
+      }
+      console.log('[GalleryPlus] viewer enhanced');
+    } catch (err) {
+      console.warn('[GalleryPlus] enhanceViewer error', err);
     }
+  }
 
-  // Watch for the settings fragment to appear (Dice-style loader injects it)
-  const settingsMO = new MutationObserver(() => {
-    document.querySelectorAll('.gp-settings[data-ext="GalleryPlus"]').forEach(bindSettingsPanel);
+  const viewerObserver = new MutationObserver((muts) => {
+    for (const m of muts) {
+      for (const n of m.addedNodes) {
+        if (!(n instanceof HTMLElement)) continue;
+        if (n.classList.contains('galleryImageDraggable')) {
+          enhanceViewer(n);
+        }
+      }
+    }
   });
+  viewerObserver.observe(document.body, { childList: true, subtree: true });
 
-  function start() {
-    mo.observe(document.body, { childList: true, subtree: true });
-    settingsMO.observe(document.body, { childList: true, subtree: true });
+  // ---- Safety: defensive parsing for /api/images/list results ----------------
+  // If you patched a fetch shim earlier, leave it in place; just ensure we never crash on non-arrays.
+  const oldFetch = window.fetch.bind(window);
+  window.fetch = async (...args) => {
+    const res = await oldFetch(...args);
+    try {
+      // clone only requests we care about
+      if (res.ok && /\/api\/images\/list\b/.test(res.url)) {
+        const clone = res.clone();
+        const data = await clone.json().catch(() => null);
+        if (data && !Array.isArray(data) && !Array.isArray(data?.items)) {
+          console.warn('[GalleryPlus] /api/images/list returned unexpected payload; extension will adapt.');
+        }
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return res;
+  };
 
-    // In case viewer already open or panel already injected
-    document.querySelectorAll('.galleryImageDraggable').forEach(enhanceImageViewer);
-    document.querySelectorAll('.gp-settings[data-ext="GalleryPlus"]').forEach(bindSettingsPanel);
-
-    log('ready', ensureSettings());
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', start, { once: true });
-  } else {
-    start();
-  }
+  console.log('[GalleryPlus] ready', store);
 })();

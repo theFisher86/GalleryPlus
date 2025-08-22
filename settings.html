@@ -1,20 +1,30 @@
-<div class="gp-settings" data-ext="GalleryPlus" style="display:grid;gap:10px;">
-  <label class="checkbox_label">
-    <input type="checkbox" id="gp-enabled">
-    <span>Enable GalleryPlus</span>
-  </label>
-
-  <div class="row">
-    <label for="gp-openHeight">Default open height (px)</label>
-    <input type="number" id="gp-openHeight" class="text_pole" min="400" max="2400" step="20" style="width:120px">
-  </div>
-
-  <div class="row">
-    <label class="checkbox_label" for="gp-hoverZoom">
-      <input type="checkbox" id="gp-hoverZoom">
-      <span>Hover zoom in viewer</span>
+<!-- Rendered inside the unified Extensions panel by ST -->
+<div id="gp-settings-root" class="gp-settings">
+  <div class="flexcol gp-settings-grid">
+    <label class="gp-row">
+      <input type="checkbox" id="gp-enabled">
+      <span>Enable GalleryPlus</span>
     </label>
-    <label for="gp-hoverZoomScale" style="min-width:120px;">Scale</label>
-    <input type="number" id="gp-hoverZoomScale" class="text_pole" min="1.01" max="1.5" step="0.01" style="width:100px">
+
+    <label class="gp-row">
+      <span>Default image height (px)</span>
+      <input type="number" id="gp-openHeight" min="220" max="4000" step="10" style="width: 8rem;">
+      <span class="gp-out" id="gp-openHeightValue"></span>
+    </label>
+
+    <label class="gp-row">
+      <input type="checkbox" id="gp-hoverZoom">
+      <span>Hover zoom on image viewer</span>
+    </label>
+
+    <label class="gp-row">
+      <span>Hover zoom scale</span>
+      <input type="range" id="gp-hoverZoomScale" min="1.00" max="1.25" step="0.01" style="width: 12rem;">
+      <span class="gp-out" id="gp-hoverZoomScaleValue"></span>
+    </label>
+
+    <div class="gp-note">
+      Pagination is pinned to the window bottom; the thumbnails area scrolls independently.
+    </div>
   </div>
 </div>

@@ -19,6 +19,12 @@
   color:#fff;
 }
 
+/* --- Gallery list layout fixes (pagination pinned) --- */
+#gallery #dragGallery {
+  /* JS sets a precise height; this is a safe fallback */
+  height: 100%;
+}
+
 /* Optional: small label spacing inside settings.html */
 .gp-settings .row{ display:flex; gap:10px; align-items:center; }
 .gp-settings .row label:first-child{ min-width:180px; }
@@ -32,6 +38,27 @@
   background: color-mix(in oklab, var(--SmartThemeAccentColor,#ec4899) 35%, transparent) !important;
 }
 
+#gallery .nGY2Gallery {
+  display: flex !important;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+}
+
+#gallery .nGY2GallerySub {
+  flex: 1 1 auto !important;
+  height: auto !important;
+  overflow: auto !important; /* only thumbnails scroll */
+}
+
+#gallery .nGY2GalleryBottom {
+  flex: 0 0 auto !important;
+  position: sticky;
+  bottom: 0;
+  padding: 6px 0;
+  background: transparent;
+  z-index: 1;
+}
 
 /* Scrollable content area that holds the grid */
 .gp-scroll {
