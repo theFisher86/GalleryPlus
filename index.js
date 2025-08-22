@@ -12,6 +12,16 @@
     else document.addEventListener('DOMContentLoaded', fn, { once: true });
   };
 
+    // Before (can fail in non-module scripts):
+  // rootEl.innerHTML = await fetch(import.meta.url.replace('index.js', 'settings.html')).then(r => r.text());
+
+  // After (robust, resolves relative to the script URL when available, else falls back):
+  const base =
+    (document.currentScript && new URL('.', document.currentScript.src).href) ||
+    '/scripts/extensions/third-party/GalleryPlus/';
+  const html = await fetch(base + 'settings.html').then(r => r.text());
+  rootEl.innerHTML = html;
+
   function log(...args) {
     console.log('%c[GalleryPlus]%c', 'color:#fff;background:#7b1fa2;padding:2px 6px;border-radius:4px', '', ...args);
   }
