@@ -26,6 +26,9 @@
     viewerImgQuery:
       ".nGY2Viewer img, .nGY2ViewerItem img, .nGY2viewerImg, .nGY2viewerImage, .nGY2ViewerContent img",
   };
+// Help with debugging
+  window.GP_DEBUG_SELECTORS = SELECTORS;   // expose selectors
+
 
   // ---------- UTIL ----------
   const log = (...args) => console.log(LOG_PREFIX, ...args);
@@ -256,6 +259,9 @@
     window.addEventListener("resize", removeIfDetached);
   }
 
+  // Help with debugging
+  window.GP_DEBUG = { enhance: gpEnhanceViewer, applyZoom: applyZoomMode };
+  
   // Add or remove our wheel zoom handlers depending on settings
   function applyZoomMode(viewRoot, state) {
     if (!viewRoot) return;
