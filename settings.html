@@ -1,36 +1,20 @@
-<div class="ext-galleryplus-settings">
-  <label class="st-label">
-    <input type="checkbox" data-gp="enabled">
-    Enable GalleryPlus
+<div class="gp-settings" data-ext="GalleryPlus" style="display:grid;gap:10px;">
+  <label class="checkbox_label">
+    <input type="checkbox" id="gp-enabled">
+    <span>Enable GalleryPlus</span>
   </label>
 
-  <label class="st-label">
-    Default Open Height (px)
-    <input type="number" min="200" max="2400" step="50" data-gp="openHeight">
-  </label>
+  <div class="row">
+    <label for="gp-openHeight">Default open height (px)</label>
+    <input type="number" id="gp-openHeight" class="text_pole" min="400" max="2400" step="20" style="width:120px">
+  </div>
 
-  <label class="st-label">
-    Hover Zoom
-    <input type="checkbox" data-gp="hoverZoom">
-  </label>
-
-  <label class="st-label">
-    Hover Zoom Max Scale (e.g. 1.08)
-    <input type="number" step="0.01" min="1" max="2" data-gp="hoverZoomScale">
-  </label>
-
-  <label class="st-label">
-    Masonry Dense Layout
-    <input type="checkbox" data-gp="masonryDense">
-  </label>
-
-  <label class="st-label">
-    Show Captions / Metadata
-    <input type="checkbox" data-gp="showCaptions">
-  </label>
-
-  <label class="st-label">
-    Optimize for WebP Only (skip others)
-    <input type="checkbox" data-gp="webpOnly">
-  </label>
+  <div class="row">
+    <label class="checkbox_label" for="gp-hoverZoom">
+      <input type="checkbox" id="gp-hoverZoom">
+      <span>Hover zoom in viewer</span>
+    </label>
+    <label for="gp-hoverZoomScale" style="min-width:120px;">Scale</label>
+    <input type="number" id="gp-hoverZoomScale" class="text_pole" min="1.01" max="1.5" step="0.01" style="width:100px">
+  </div>
 </div>
