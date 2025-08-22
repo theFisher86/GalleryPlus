@@ -10,18 +10,23 @@
 }
 
 /* Nice gradient header that you asked to keep */
-.gp-header {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  padding: 10px 12px;
-  background: linear-gradient(90deg, #7b1fa2, #512da8);
-  color: #fff;
-  border-bottom: 1px solid #32184c;
-  text-align: center;
+.gp-header{
+  padding: 10px 14px;
+  border-radius: 10px;
   font-weight: 700;
-  border-radius: 8px;
+  text-align: center;
+  background: linear-gradient(90deg,#6d28d9,#9333ea);
+  color: #fff;
 }
+
+/* pagination accent */
+#gallery .nGY2GalleryBottom .nGY2paginationRectangleCurrentPage{
+  background: var(--SmartThemeAccentColor,#ec4899) !important; /* pink */
+}
+#gallery .nGY2GalleryBottom .nGY2paginationRectangle{
+  background: color-mix(in oklab, var(--SmartThemeAccentColor,#ec4899) 35%, transparent) !important;
+}
+
 
 /* Scrollable content area that holds the grid */
 .gp-scroll {
