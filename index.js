@@ -9,7 +9,7 @@
     return;
   }
 
-  // ---- Helpers --------------------------------------------------------------
+// --- GalleryPlus persistence helpers ---
 function gpCtx() {
   const ctx = SillyTavern?.getContext?.();
   if (!ctx.extensionSettings.GalleryPlus) ctx.extensionSettings.GalleryPlus = {};
@@ -151,6 +151,12 @@ function gpPatch(patch) {
   });
   listObserver.observe(document.body, { childList: true, subtree: true });
 
+  // Rename the drawer title to "Image GalleryPlus"
+  {
+    const el = document.querySelector('#gallery .dragTitle span');
+    if (el) el.textContent = 'Image GalleryPlus';
+  }
+
   // ---- Image viewer: gradient header + hover zoom (no wrappers) -------------
   function enhanceViewer(win) {
     try {
@@ -261,6 +267,115 @@ function gpPatch(patch) {
 
   // default zoom mode from settings
   gpApplyZoomMode(root, (gpGet().zoomMode || (gpGet().hoverZoom ? 'hover' : 'wheel')));
+}
+
+function gpEnhanceViewer(root) {
+  // Make sure the main gallery title also reads "Image GalleryPlus"
+  { const el = document.querySelector('#gallery .dragTitle span'); if (el) el.textContent = 'Image GalleryPlus'; }
+
+  // Add small overlay controls (💾, 🔍)
+  if (!root.querySelector('.gp-controls')) {
+    const controls = document.createElement('div');
+    controls.className = 'gp-controls';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'gp-btn';
+    saveBtn.title = 'Save as default size and location';
+    saveBtn.textContent = '💾';
+    saveBtn.addEventListener('click', () => {
+      const rect = root.getBoundingClientRect();
+      gpPatch({
+        defaultRect: {
+          left: rect.left, top: rect.top, width: rect.width, height: rect.height,
+        },
+      });
+    });
+
+    const zoomBtn = document.createElement('button');
+    zoomBtn.className = 'gp-btn';
+    zoomBtn.title = 'Toggle zoom mode (hover ↔ wheel)';
+    zoomBtn.textContent = '🔍';
+    zoomBtn.addEventListener('click', () => {
+      const cur = gpGet().zoomMode || 'hover';
+      const next = cur === 'hover' ? 'wheel' : 'hover';
+      gpPatch({ zoomMode: next });
+      gpApplyZoomMode(root, next);
+    });
+
+    controls.append(saveBtn, zoomBtn);
+    root.appendChild(controls);
+  }
+
+  // apply saved default size/pos if we have one
+  const st = gpGet();
+  if (st.defaultRect) {
+    const r = st.defaultRect;
+    Object.assign(root.style, {
+      left: `${Math.round(r.left)}px`,
+      top: `${Math.round(r.top)}px`,
+      width: `${Math.round(r.width)}px`,
+      height: `${Math.round(r.height)}px`,
+    });
+  }
+
+  // ensure we can transform the image
+  const img = root.querySelector('img');
+  if (img) img.classList.add('gp-zoom-img');
+
+  // apply zoom mode (defaults to hover)
+  gpApplyZoomMode(root, gpGet().zoomMode || 'hover');
+}
+
+function gpApplyZoomMode(root, mode) {
+  const img = root.querySelector('img');
+  if (!img) return;
+
+  // reset
+  root.onmousemove = null;
+  root.onmouseleave = null;
+  root.onwheel = null;
+  root.onmousedown = null;
+  img.style.transform = 'translate(0,0) scale(1)';
+
+  if (mode === 'hover') {
+    const base = gpGet().hoverZoomScale || 1.08;
+    root.onmousemove = (e) => {
+      const rect = img.getBoundingClientRect();
+      const cx = (e.clientX - rect.left) / rect.width;
+      const cy = (e.clientY - rect.top) / rect.height;
+      const dx = (0.5 - cx) * 12;  // inverse move
+      const dy = (0.5 - cy) * 12;
+      img.style.transform = `translate(${dx}px, ${dy}px) scale(${base})`;
+    };
+    root.onmouseleave = () => { img.style.transform = 'translate(0,0) scale(1)'; };
+  } else {
+    let scale = gpGet().wheelScale || 1;
+    let tx = 0, ty = 0;
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; };
+
+    root.onwheel = (e) => {
+      e.preventDefault();
+      const f = e.deltaY < 0 ? 1.1 : 0.9;
+      scale = clamp(+((scale * f).toFixed(3)), 0.4, 6);
+      gpPatch({ wheelScale: scale });
+      apply();
+    };
+
+    // drag to pan when zoomed
+    let down = false, lx = 0, ly = 0;
+    root.onmousedown = (e) => { if (scale <= 1) return; down = true; lx = e.clientX; ly = e.clientY; };
+    window.addEventListener('mouseup', () => { down = false; });
+    root.addEventListener('mousemove', (e) => {
+      if (!down || scale <= 1) return;
+      const dx = e.clientX - lx, dy = e.clientY - ly;
+      lx = e.clientX; ly = e.clientY;
+      tx += dx; ty += dy;
+      apply();
+    });
+
+    apply();
+  }
 }
 
 function gpApplyZoomMode(root, mode) {

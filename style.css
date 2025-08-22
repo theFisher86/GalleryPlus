@@ -19,51 +19,64 @@
   color:#fff;
 }
 
-/* --- Gallery list layout fixes (pagination pinned) --- */
-#gallery #dragGallery {
-  /* fill the drawer so the pagination anchors to the bottom */
-  height: 100% !important;
-  overflow: hidden !important;
-  position: relative;
-}
-
-/* Optional: small label spacing inside settings.html */
-.gp-settings .row{ display:flex; gap:10px; align-items:center; }
-.gp-settings .row label:first-child{ min-width:180px; }
-
-
-/* pagination accent */
-#gallery .nGY2GalleryBottom .nGY2paginationRectangleCurrentPage{
-  background: var(--SmartThemeAccentColor,#ec4899) !important; /* pink */
-}
-#gallery .nGY2GalleryBottom .nGY2paginationRectangle{
-  background: color-mix(in oklab, var(--SmartThemeAccentColor,#ec4899) 35%, transparent) !important;
-}
-
-#gallery .nGY2Gallery {
-  display: flex !important;
+/* === GalleryPlus: drawer + NGY2 layout (safe with inline height) === */
+#gallery {
+  display: flex;
   flex-direction: column;
-  height: 100% !important;
-  overflow: auto !important; /* allow scroll inside the gallery area */
-  position: relative;
 }
 
-#gallery .nGY2GallerySub {
+/* Fill the remaining drawer space with the gallery container */
+#gallery #dragGallery {
   flex: 1 1 auto !important;
-  height: unset !important;
-  min-height: 0 !important;
-  overflow: auto !important; /* only thumbnails scroll */
+  min-height: 0 !important;           /* allow child to size/scroll */
+  overflow: hidden !important;
 }
 
+/* NGY2 root inside the container becomes the scroller */
+#gallery .nGY2Gallery {
+  position: relative;
+  height: 100% !important;
+  overflow: auto !important;           /* scroll thumbnails here */
+}
+
+/* Let NGY2 compute its own sub-height (fixes “images not showing”) */
+#gallery .nGY2GallerySub {
+  height: unset !important;            /* undo “height:auto !important” */
+  min-height: 0 !important;
+}
+
+/* Keep the pagination bar visible at the bottom of the scroller */
 #gallery .nGY2GalleryBottom {
-  flex: 0 0 auto !important;
-  position: absolute !important;
-  left: 0; right: 0; bottom: 12px;
-  margin-top: 0 !important;
+  position: sticky !important;
+  bottom: 0;
   padding: 6px 0;
-  background: transparent;
+  background: var(--SmartThemeBlurTintColor);
   z-index: 1;
 }
+
+/* Hide the (temporary) GP header in the image viewer */
+.gp-root .gp-header { display: none !important; }
+
+/* Small overlay controls for the image viewer */
+.gp-controls {
+  position: absolute; z-index: 3;
+  top: 8px; left: 10px; display: flex; gap: 6px;
+}
+.gp-btn {
+  padding: 4px 8px; border-radius: 8px;
+  border: 1px solid var(--SmartThemeBorderColor);
+  background: var(--SmartThemeBodyColor); opacity: .9; line-height: 1;
+  cursor: pointer; user-select: none;
+  appearance: none;
+  background: #1b1b1b;
+  color: #ddd;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.gp-btn:hover { opacity: 1; }
+.gp-zoom-img { will-change: transform; transform-origin: center center; }
+
 
 /* Scrollable content area that holds the grid */
 .gp-scroll {
@@ -125,17 +138,6 @@
   gap: 6px;
 }
 
-.gp-btn {
-  appearance: none;
-  background: #1b1b1b;
-  color: #ddd;
-  border-radius: 6px;
-  font-size: 12px;
-  padding: 4px 8px; border-radius: 8px;
-  border: 1px solid var(--SmartThemeBorderColor);
-  background: var(--SmartThemeBodyColor); opacity: .9; line-height: 1;
-  cursor: pointer; user-select: none;
-}
 .gp-btn:hover { opacity: 1; }
 
 /* Smooth transforms while zooming */
