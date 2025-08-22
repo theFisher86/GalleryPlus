@@ -1,0 +1,101 @@
+/* Root modal area augmentation */
+.gp-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 10px;
+  align-items: stretch;
+  contain: content;
+}
+
+.gp-card {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--Surface2, #111);
+  aspect-ratio: 1 / 1; /* stable boxes; image fits inside */
+  display: grid;
+  place-items: center;
+  contain: content paint layout size;
+}
+
+.gp-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  will-change: transform;
+}
+
+.gp-card .gp-caption {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  background: color-mix(in oklab, black 60%, transparent);
+  color: #eee;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.gp-card .gp-actions {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  display: flex;
+  gap: 6px;
+}
+
+.gp-btn {
+  appearance: none;
+  border: 1px solid #444;
+  background: #1b1b1b;
+  color: #ddd;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.gp-pagination-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--Surface1, rgba(0,0,0,.7));
+  backdrop-filter: blur(6px);
+  padding: 8px;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  border-top: 1px solid #333;
+}
+
+/* Preview modal sizing & motion */
+.gp-preview {
+  --gp-open-height: 700px;
+  display: grid;
+  place-items: center;
+  width: min(calc(var(--gp-open-height) * 1.77), 95vw);
+  height: min(var(--gp-open-height), 90vh);
+  overflow: hidden;
+  background: #0b0b0b;
+  border-radius: 10px;
+}
+
+.gp-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  will-change: transform;
+  transition: transform 220ms ease;
+}
+
+.gp-preview[data-zooming="1"] img {
+  transition: none;
+}
+
+/* Optional dense masonry */
+.gp-dense {
+  grid-auto-flow: dense;
+}
