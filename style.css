@@ -30,6 +30,7 @@
   flex: 1 1 auto !important;
   min-height: 0 !important;           /* allow child to size/scroll */
   overflow: hidden !important;
+  height: 100%;
 }
 
 /* NGY2 root inside the container becomes the scroller */

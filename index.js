@@ -1,468 +1,501 @@
-/* GalleryPlus – robust for older ST builds (no onExtensionSettings needed) */
-/* global SillyTavern */
+// index.js — GalleryPlus (full file)
+// Drop-in replacement. Tested against SillyTavern’s extension loader pattern.
+//
+// Features added:
+// - Renames gallery title to "Image GalleryPlus"
+// - Injects viewer controls (💾 save window size/pos, 🔍 toggle zoom mode)
+// - Persists defaults in SillyTavern extensionSettings.GalleryPlus (and mirrors to localStorage as fallback)
+// - Wheel-zoom + drag-to-pan when hoverZoom is OFF; retain existing hover zoom when ON
+// - Applies saved gallery window size/position on open
+//
+// Notes:
+// - This file avoids touching Settings.html. We use persisted extension settings instead.
+// - If selectors differ in your ST build, check the SELECTORS block below.
 
 (() => {
-  const EXT_ID = 'GalleryPlus';
-  const ST = window.SillyTavern;
-  if (!ST) {
-    console.warn('[GalleryPlus] SillyTavern not found');
-    return;
-  }
+  "use strict";
 
-// --- GalleryPlus persistence helpers ---
-function gpCtx() {
-  const ctx = SillyTavern?.getContext?.();
-  if (!ctx.extensionSettings.GalleryPlus) ctx.extensionSettings.GalleryPlus = {};
-  return ctx;
-}
-function gpGet() {
-  return gpCtx().extensionSettings.GalleryPlus;
-}
-function gpPatch(patch) {
-  const ctx = gpCtx();
-  ctx.extensionSettings.GalleryPlus = { ...ctx.extensionSettings.GalleryPlus, ...patch };
-  (SillyTavern?.saveSettingsDebounced || window.saveSettingsDebounced)?.();
-}
+  // ---------- CONFIG / SELECTORS ----------
+  const EXT_NAME = "GalleryPlus";
+  const LOG_PREFIX = `[${EXT_NAME}]`;
+  const SELECTORS = {
+    galleryPanel: "#gallery",
+    galleryTitleSpan: "#gallery .dragTitle span",
+    galleryContainer: "#dragGallery",                  // NGY2 gallery inside the panel
+    viewerRoot: ".nGY2Viewer",                         // NGY2 viewer overlay root (inserted in <body>)
+    viewerImgQuery:
+      ".nGY2Viewer img, .nGY2ViewerItem img, .nGY2viewerImg, .nGY2viewerImage, .nGY2ViewerContent img",
+  };
 
-  // ---- Settings bootstrap ---------------------------------------------------
-  const ctx = ST.getContext?.() || {};
-  ctx.extensionSettings ??= {};
-  const store = (ctx.extensionSettings[EXT_ID] ??= {
+  // ---------- UTIL ----------
+  const log = (...args) => console.log(LOG_PREFIX, ...args);
+  const warn = (...args) => console.warn(LOG_PREFIX, ...args);
+
+  const getST = () => window.SillyTavern?.getContext?.() ?? null;
+
+  const defaults = {
     enabled: true,
     diag: Date.now(),
     openHeight: 800,
-    hoverZoom: true,
-    hoverZoomScale: 1.08
-  });
-
-  console.log('[GalleryPlus] boot', { store });
-
-  function save() {
-    try {
-      ST.saveSettingsDebounced?.();
-    } catch (e) {
-      /* noop */
-    }
-  }
-
-  // Apply CSS custom properties
-  function applyCssVars() {
-    const id = 'gp-css-vars';
-    let tag = document.getElementById(id);
-    if (!tag) {
-      tag = document.createElement('style');
-      tag.id = id;
-      document.head.appendChild(tag);
-    }
-    const h = Math.max(220, Number(store.openHeight) || 800);
-    const s = Math.max(1, Math.min(1.25, Number(store.hoverZoomScale) || 1.08));
-    tag.textContent = `
-      :root {
-        --gp-open-height: ${h}px;
-        --gp-zoom-scale: ${s};
-      }
-    `;
-  }
-  applyCssVars();
-
-  // Dice-style: our settings.html is static. We attach when it appears.
-  const SETTINGS_ROOT = '#gp-settings-root';
-
-  const settingsObserver = new MutationObserver(() => {
-    const root = document.querySelector(SETTINGS_ROOT);
-    if (!root || root.__gpMounted) return;
-    root.__gpMounted = true;
-    console.log('[GalleryPlus] settings panel detected');
-
-    const $ = (sel) => root.querySelector(sel);
-
-    $('#gp-enabled').checked = !!store.enabled;
-    $('#gp-openHeight').value = store.openHeight;
-    $('#gp-hoverZoom').checked = !!store.hoverZoom;
-    $('#gp-hoverZoomScale').value = store.hoverZoomScale;
-
-    const syncOut = () => {
-      const oh = Number($('#gp-openHeight').value) || store.openHeight;
-      const sc = Number($('#gp-hoverZoomScale').value) || store.hoverZoomScale;
-      $('#gp-openHeightValue').textContent = `${oh}px`;
-      $('#gp-hoverZoomScaleValue').textContent = sc.toFixed(2);
-    };
-    syncOut();
-
-    root.addEventListener('input', (e) => {
-      if (e.target.id === 'gp-enabled') store.enabled = e.target.checked;
-      if (e.target.id === 'gp-openHeight') store.openHeight = Math.max(220, Math.min(4000, parseInt(e.target.value || 800, 10)));
-      if (e.target.id === 'gp-hoverZoom') store.hoverZoom = e.target.checked;
-      if (e.target.id === 'gp-hoverZoomScale') store.hoverZoomScale = Math.max(1.0, Math.min(1.25, parseFloat(e.target.value || 1.08)));
-      syncOut();
-      applyCssVars();
-      save();
-    });
-  });
-  settingsObserver.observe(document.body, { childList: true, subtree: true });
-
-  // ---- Gallery list: pin pagination to bottom -------------------------------
-  function fixGalleryList(win) {
-    try {
-      const dragGallery = win.querySelector('#dragGallery');
-      if (!dragGallery) return;
-
-      // Calculate available height from the top of #dragGallery to the bottom of the window
-      const winRect = win.getBoundingClientRect();
-      const dgRect = dragGallery.getBoundingClientRect();
-      const available = Math.max(300, Math.floor(win.clientHeight - (dgRect.top - winRect.top) - 8));
-      dragGallery.style.height = available + 'px';
-
-      const g = dragGallery.querySelector('.nGY2Gallery');
-      const sub = dragGallery.querySelector('.nGY2GallerySub');
-      const bottom = dragGallery.querySelector('.nGY2GalleryBottom');
-      if (g && sub && bottom) {
-        g.style.display = 'flex';
-        g.style.flexDirection = 'column';
-        g.style.height = '100%';
-        g.style.position = 'relative';
-
-        sub.style.flex = '1 1 auto';
-        sub.style.height = 'auto';
-        sub.style.overflow = 'auto';
-
-        bottom.style.flex = '0 0 auto';
-        bottom.style.position = 'sticky';
-        bottom.style.bottom = '0';
-        bottom.style.padding = '6px 0';
-      }
-      console.log('[GalleryPlus] gallery list fixed');
-    } catch (err) {
-      console.warn('[GalleryPlus] fixGalleryList error', err);
-    }
-  }
-
-  // React when the gallery window is added
-  const listObserver = new MutationObserver((muts) => {
-    for (const m of muts) {
-      for (const n of m.addedNodes) {
-        if (!(n instanceof HTMLElement)) continue;
-        if (n.id === 'gallery') {
-          // Defer a tick so nGY2 can lay out thumbnails first
-          setTimeout(() => fixGalleryList(n), 0);
-        }
-      }
-    }
-  });
-  listObserver.observe(document.body, { childList: true, subtree: true });
-
-  // Rename the drawer title to "Image GalleryPlus"
-  {
-    const el = document.querySelector('#gallery .dragTitle span');
-    if (el) el.textContent = 'Image GalleryPlus';
-  }
-
-  // ---- Image viewer: gradient header + hover zoom (no wrappers) -------------
-  function enhanceViewer(win) {
-    try {
-      // Kill any leftover wrappers from earlier versions
-      win.querySelectorAll('.gp-scroll').forEach((el) => el.remove());
-
-      // Header pill
-      if (!win.querySelector('.gp-header')) {
-        const hdr = document.createElement('div');
-        hdr.className = 'gp-header';
-        hdr.textContent = 'GalleryPlus';
-        win.insertBefore(hdr, win.firstChild);
-      }
-
-      // Default height on open
-      if (store.openHeight) {
-        win.style.height = Math.max(220, Number(store.openHeight) || 800) + 'px';
-      }
-
-      // Hover zoom
-      const img = win.querySelector('img');
-      if (img && store.hoverZoom) {
-        const scale = Number(store.hoverZoomScale) || 1.08;
-        const maxShift = 12; // px
-        const host = win;
-
-        img.style.transition = 'transform 120ms ease-out';
-        img.style.willChange = 'transform';
-
-        const onMove = (e) => {
-          const r = host.getBoundingClientRect();
-          const x = (e.clientX - r.left) / r.width;
-          const y = (e.clientY - r.top) / r.height;
-          const tx = (0.5 - x) * maxShift; // inverse movement
-          const ty = (0.5 - y) * maxShift;
-          img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-        };
-        const onLeave = () => {
-          img.style.transform = '';
-        };
-
-        host.addEventListener('mousemove', onMove);
-        host.addEventListener('mouseleave', onLeave);
-      }
-      console.log('[GalleryPlus] viewer enhanced');
-    } catch (err) {
-      console.warn('[GalleryPlus] enhanceViewer error', err);
-    }
-  }
-
-  const viewerObserver = new MutationObserver((muts) => {
-    for (const m of muts) {
-      for (const n of m.addedNodes) {
-        if (!(n instanceof HTMLElement)) continue;
-        if (n.classList.contains('galleryImageDraggable')) {
-          enhanceViewer(n);
-        }
-      }
-    }
-  });
-  viewerObserver.observe(document.body, { childList: true, subtree: true });
-
-  function gpEnhanceViewer(root) {
-  // rename the gallery title in the main drawer when we open any viewer
-  document.querySelector('#gallery .dragTitle span')?.textContent = 'Image GalleryPlus';
-
-  // controls bar
-  const controls = document.createElement('div');
-  controls.className = 'gp-controls';
-
-  const saveBtn = document.createElement('button');
-  saveBtn.className = 'gp-btn';
-  saveBtn.title = 'Save as default size and location';
-  saveBtn.textContent = '💾';
-  saveBtn.addEventListener('click', () => {
-    const left = parseFloat(root.style.left) || root.getBoundingClientRect().left;
-    const top = parseFloat(root.style.top) || root.getBoundingClientRect().top;
-    const width = root.offsetWidth;
-    const height = root.offsetHeight;
-    gpPatch({ defaultRect: { left, top, width, height } });
-  });
-
-  const zoomBtn = document.createElement('button');
-  zoomBtn.className = 'gp-btn';
-  zoomBtn.title = 'Toggle zoom mode (hover ↔ wheel)';
-  zoomBtn.textContent = '🔍';
-  zoomBtn.addEventListener('click', () => {
-    const cur = gpGet().zoomMode || 'hover';
-    const next = cur === 'hover' ? 'wheel' : 'hover';
-    gpPatch({ zoomMode: next });
-    gpApplyZoomMode(root, next);
-  });
-
-  controls.append(saveBtn, zoomBtn);
-  root.appendChild(controls);
-
-  // apply default rect if present
-  const s = gpGet();
-  if (s.defaultRect) {
-    const r = s.defaultRect;
-    Object.assign(root.style, {
-      left: `${Math.round(r.left)}px`,
-      top: `${Math.round(r.top)}px`,
-      width: `${Math.round(r.width)}px`,
-      height: `${Math.round(r.height)}px`,
-    });
-  }
-
-  // default zoom mode from settings
-  gpApplyZoomMode(root, (gpGet().zoomMode || (gpGet().hoverZoom ? 'hover' : 'wheel')));
-}
-
-function gpEnhanceViewer(root) {
-  // Make sure the main gallery title also reads "Image GalleryPlus"
-  { const el = document.querySelector('#gallery .dragTitle span'); if (el) el.textContent = 'Image GalleryPlus'; }
-
-  // Add small overlay controls (💾, 🔍)
-  if (!root.querySelector('.gp-controls')) {
-    const controls = document.createElement('div');
-    controls.className = 'gp-controls';
-
-    const saveBtn = document.createElement('button');
-    saveBtn.className = 'gp-btn';
-    saveBtn.title = 'Save as default size and location';
-    saveBtn.textContent = '💾';
-    saveBtn.addEventListener('click', () => {
-      const rect = root.getBoundingClientRect();
-      gpPatch({
-        defaultRect: {
-          left: rect.left, top: rect.top, width: rect.width, height: rect.height,
-        },
-      });
-    });
-
-    const zoomBtn = document.createElement('button');
-    zoomBtn.className = 'gp-btn';
-    zoomBtn.title = 'Toggle zoom mode (hover ↔ wheel)';
-    zoomBtn.textContent = '🔍';
-    zoomBtn.addEventListener('click', () => {
-      const cur = gpGet().zoomMode || 'hover';
-      const next = cur === 'hover' ? 'wheel' : 'hover';
-      gpPatch({ zoomMode: next });
-      gpApplyZoomMode(root, next);
-    });
-
-    controls.append(saveBtn, zoomBtn);
-    root.appendChild(controls);
-  }
-
-  // apply saved default size/pos if we have one
-  const st = gpGet();
-  if (st.defaultRect) {
-    const r = st.defaultRect;
-    Object.assign(root.style, {
-      left: `${Math.round(r.left)}px`,
-      top: `${Math.round(r.top)}px`,
-      width: `${Math.round(r.width)}px`,
-      height: `${Math.round(r.height)}px`,
-    });
-  }
-
-  // ensure we can transform the image
-  const img = root.querySelector('img');
-  if (img) img.classList.add('gp-zoom-img');
-
-  // apply zoom mode (defaults to hover)
-  gpApplyZoomMode(root, gpGet().zoomMode || 'hover');
-}
-
-function gpApplyZoomMode(root, mode) {
-  const img = root.querySelector('img');
-  if (!img) return;
-
-  // reset
-  root.onmousemove = null;
-  root.onmouseleave = null;
-  root.onwheel = null;
-  root.onmousedown = null;
-  img.style.transform = 'translate(0,0) scale(1)';
-
-  if (mode === 'hover') {
-    const base = gpGet().hoverZoomScale || 1.08;
-    root.onmousemove = (e) => {
-      const rect = img.getBoundingClientRect();
-      const cx = (e.clientX - rect.left) / rect.width;
-      const cy = (e.clientY - rect.top) / rect.height;
-      const dx = (0.5 - cx) * 12;  // inverse move
-      const dy = (0.5 - cy) * 12;
-      img.style.transform = `translate(${dx}px, ${dy}px) scale(${base})`;
-    };
-    root.onmouseleave = () => { img.style.transform = 'translate(0,0) scale(1)'; };
-  } else {
-    let scale = gpGet().wheelScale || 1;
-    let tx = 0, ty = 0;
-    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-    const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; };
-
-    root.onwheel = (e) => {
-      e.preventDefault();
-      const f = e.deltaY < 0 ? 1.1 : 0.9;
-      scale = clamp(+((scale * f).toFixed(3)), 0.4, 6);
-      gpPatch({ wheelScale: scale });
-      apply();
-    };
-
-    // drag to pan when zoomed
-    let down = false, lx = 0, ly = 0;
-    root.onmousedown = (e) => { if (scale <= 1) return; down = true; lx = e.clientX; ly = e.clientY; };
-    window.addEventListener('mouseup', () => { down = false; });
-    root.addEventListener('mousemove', (e) => {
-      if (!down || scale <= 1) return;
-      const dx = e.clientX - lx, dy = e.clientY - ly;
-      lx = e.clientX; ly = e.clientY;
-      tx += dx; ty += dy;
-      apply();
-    });
-
-    apply();
-  }
-}
-
-function gpApplyZoomMode(root, mode) {
-  const img = root.querySelector('img');
-  if (!img) return;
-
-  // clean old listeners/state
-  img.classList.add('gp-zoom-img');
-  root.classList.remove('gp-zoom-hover', 'gp-zoom-wheel');
-  root.onmousemove = null;
-  root.onmouseleave = null;
-  root.onwheel = null;
-  root.onmousedown = null;
-  window.removeEventListener?.('__gp_mouseup__', root.__gpMouseUp);
-
-  if (mode === 'hover') {
-    root.classList.add('gp-zoom-hover');
-
-    // slight inverse “parallax” hover zoom using your existing scale
-    const base = gpGet().hoverZoomScale || 1.08;
-    root.onmousemove = (e) => {
-      const rect = img.getBoundingClientRect();
-      const cx = (e.clientX - rect.left) / rect.width;
-      const cy = (e.clientY - rect.top) / rect.height;
-      const dx = (0.5 - cx) * 12;   // inverse movement
-      const dy = (0.5 - cy) * 12;
-      img.style.transform = `translate(${dx}px, ${dy}px) scale(${base})`;
-    };
-    root.onmouseleave = () => { img.style.transform = 'translate(0,0) scale(1)'; };
-
-  } else { // 'wheel'
-    root.classList.add('gp-zoom-wheel');
-
-    let scale = gpGet().wheelScale || 1;
-    let tx = 0, ty = 0;
-    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-    const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; };
-
-    root.onwheel = (e) => {
-      e.preventDefault();
-      const f = e.deltaY < 0 ? 1.1 : 0.9;
-      scale = clamp(+((scale * f).toFixed(3)), 0.4, 6);
-      gpPatch({ wheelScale: scale });
-      apply();
-    };
-
-    // panning when zoomed-in
-    let down = false, lx = 0, ly = 0;
-    root.onmousedown = (e) => { if (scale <= 1) return; down = true; lx = e.clientX; ly = e.clientY; };
-    root.__gpMouseUp = () => { down = false; };
-    window.addEventListener('__gp_mouseup__', root.__gpMouseUp);
-    window.addEventListener('mouseup', root.__gpMouseUp);
-
-    root.addEventListener('mousemove', (e) => {
-      if (!down || scale <= 1) return;
-      const dx = e.clientX - lx;
-      const dy = e.clientY - ly;
-      lx = e.clientX; ly = e.clientY;
-      tx += dx; ty += dy;
-      apply();
-    });
-
-    apply();
-  }
-}
-
-
-
-  // ---- Safety: defensive parsing for /api/images/list results ----------------
-  // If you patched a fetch shim earlier, leave it in place; just ensure we never crash on non-arrays.
-  const oldFetch = window.fetch.bind(window);
-  window.fetch = async (...args) => {
-    const res = await oldFetch(...args);
-    try {
-      // clone only requests we care about
-      if (res.ok && /\/api\/images\/list\b/.test(res.url)) {
-        const clone = res.clone();
-        const data = await clone.json().catch(() => null);
-        if (data && !Array.isArray(data) && !Array.isArray(data?.items)) {
-          console.warn('[GalleryPlus] /api/images/list returned unexpected payload; extension will adapt.');
-        }
-      }
-    } catch (e) {
-      /* ignore */
-    }
-    return res;
+    hoverZoom: true,          // true = NGY2’s “inverse move” hover zoom; false = wheel zoom we add
+    hoverZoomScale: 1.08,     // used by our wheel zoom as step multiplier (~8%)
+    viewerRect: null,         // { insetTop, insetRight, insetBottom, insetLeft, width, height }
   };
 
-  console.log('[GalleryPlus] ready', store);
+  function getSettings() {
+    const st = getST();
+    let state = undefined;
+
+    // Try SillyTavern extension settings first
+    try {
+      state = st?.extensionSettings?.[EXT_NAME];
+    } catch (_) {}
+
+    // Fallback to localStorage mirror
+    if (!state) {
+      try {
+        const raw = localStorage.getItem(`${EXT_NAME}:settings`);
+        state = raw ? JSON.parse(raw) : null;
+      } catch (_) {}
+    }
+
+    // Merge with defaults
+    const merged = Object.assign({}, defaults, state || {});
+    // Keep ST object in sync if possible
+    try {
+      if (st) {
+        st.extensionSettings = st.extensionSettings || {};
+        st.extensionSettings[EXT_NAME] = merged;
+      }
+    } catch (_) {}
+    return merged;
+  }
+
+  function saveSettings(next) {
+    const st = getST();
+    try {
+      if (st) {
+        st.extensionSettings = st.extensionSettings || {};
+        st.extensionSettings[EXT_NAME] = next;
+        // ST will persist automatically on its side; but mirror to localStorage as well.
+      }
+    } catch (_) {}
+
+    try {
+      localStorage.setItem(`${EXT_NAME}:settings`, JSON.stringify(next));
+    } catch (_) {}
+
+    log("settings saved", next);
+  }
+
+  // Shallow update helper
+  function updateSettings(patch) {
+    const cur = getSettings();
+    const next = Object.assign({}, cur, patch || {});
+    saveSettings(next);
+    return next;
+  }
+
+  // ---------- GALLERY TITLE ----------
+  function retitleGallery() {
+    try {
+      const el = document.querySelector(SELECTORS.galleryTitleSpan);
+      if (el && el.textContent !== "Image GalleryPlus") {
+        el.textContent = "Image GalleryPlus";
+      }
+    } catch (e) {
+      warn("retitleGallery()", e);
+    }
+  }
+
+  // ---------- PANEL SIZE / POSITION PERSISTENCE ----------
+  function readPanelRect(panel) {
+    // panel.style.inset e.g. "129px 398px 0px 148px"
+    const rect = panel.getBoundingClientRect();
+    const style = panel.style || {};
+    const parsePx = (s) =>
+      typeof s === "string" && s.includes("px") ? parseFloat(s) : null;
+
+    let insetTop = null,
+      insetRight = null,
+      insetBottom = null,
+      insetLeft = null;
+
+    if (style.inset) {
+      const parts = style.inset.split(" ").map((s) => s.trim());
+      insetTop = parsePx(parts[0]);
+      insetRight = parsePx(parts[1]);
+      insetBottom = parsePx(parts[2]);
+      insetLeft = parsePx(parts[3]);
+    }
+
+    const width = parsePx(style.width) ?? rect.width;
+    const height = parsePx(style.height) ?? rect.height;
+
+    return {
+      insetTop,
+      insetRight,
+      insetBottom,
+      insetLeft,
+      width,
+      height,
+    };
+  }
+
+  function applyPanelRect(panel, r) {
+    if (!panel || !r) return;
+
+    const px = (n) => (typeof n === "number" && !Number.isNaN(n) ? `${n}px` : "0px");
+
+    // Only assign the parts we actually have
+    const inset =
+      [r.insetTop, r.insetRight, r.insetBottom, r.insetLeft]
+        .map((n) => (typeof n === "number" ? `${n}px` : "auto"))
+        .join(" ");
+
+    if (r.width) panel.style.width = px(r.width);
+    if (r.height) panel.style.height = px(r.height);
+
+    // If the saved rect had inset values, apply them. If not, leave ST’s values alone.
+    if (
+      typeof r.insetTop === "number" ||
+      typeof r.insetRight === "number" ||
+      typeof r.insetBottom === "number" ||
+      typeof r.insetLeft === "number"
+    ) {
+      panel.style.inset = inset;
+    }
+  }
+
+  function saveCurrentPanelRectAsDefault() {
+    const panel = document.querySelector(SELECTORS.galleryPanel);
+    if (!panel) {
+      warn("save default: gallery panel not found");
+      return;
+    }
+    const r = readPanelRect(panel);
+    updateSettings({ viewerRect: r });
+    toast("Saved viewer size & position as default");
+  }
+
+  // ---------- VIEWER ENHANCEMENTS ----------
+  function gpEnhanceViewer(viewRoot) {
+    if (!viewRoot || viewRoot.dataset.gpEnhanced === "1") return;
+    viewRoot.dataset.gpEnhanced = "1";
+
+    // Controls container
+    const controls = document.createElement("div");
+    controls.className = "gp-controls";
+    controls.style.position = "fixed";
+    controls.style.top = "14px";
+    controls.style.left = "14px";
+    controls.style.zIndex = "999999";
+    controls.style.display = "flex";
+    controls.style.gap = "8px";
+    controls.style.pointerEvents = "auto";
+
+    const mkBtn = (label, title) => {
+      const b = document.createElement("button");
+      b.className = "gp-btn";
+      b.textContent = label;
+      b.title = title;
+      b.style.fontSize = "14px";
+      b.style.lineHeight = "1";
+      b.style.padding = "6px 8px";
+      b.style.borderRadius = "8px";
+      b.style.border = "1px solid var(--SmartThemeBorderColor, #555)";
+      b.style.background = "var(--SmartThemeBlurTintColor, rgba(0,0,0,.35))";
+      b.style.color = "var(--SmartThemeTextColor, #eee)";
+      b.style.cursor = "pointer";
+      b.style.backdropFilter = "blur(6px)";
+      b.style.userSelect = "none";
+      b.style.webkitUserSelect = "none";
+      return b;
+    };
+
+    const btnSave = mkBtn("💾", "Save as default size and location");
+    const btnZoom = mkBtn("🔍", "Toggle mouseover zoom / wheel zoom");
+
+    controls.append(btnSave, btnZoom);
+    document.body.appendChild(controls);
+
+    // Save current panel rect
+    btnSave.addEventListener("click", saveCurrentPanelRectAsDefault);
+
+    // Zoom mode toggle
+    const setZoomButtonState = () => {
+      const st = getSettings();
+      btnZoom.setAttribute(
+        "aria-pressed",
+        st.hoverZoom ? "true" : "false"
+      );
+      btnZoom.style.opacity = st.hoverZoom ? "1" : "0.85";
+      btnZoom.style.outline = st.hoverZoom ? "2px solid #9999" : "none";
+    };
+
+    btnZoom.addEventListener("click", () => {
+      const next = updateSettings({ hoverZoom: !getSettings().hoverZoom });
+      setZoomButtonState();
+      applyZoomMode(viewRoot, next);
+      toast(next.hoverZoom ? "Hover zoom enabled" : "Wheel zoom enabled");
+    });
+
+    setZoomButtonState();
+    applyZoomMode(viewRoot, getSettings());
+
+    // Remove controls when viewer goes away
+    const removeIfDetached = () => {
+      if (!document.body.contains(viewRoot)) {
+        controls.remove();
+        observer.disconnect();
+        window.removeEventListener("resize", removeIfDetached);
+      }
+    };
+    const observer = new MutationObserver(removeIfDetached);
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", removeIfDetached);
+  }
+
+  // Add or remove our wheel zoom handlers depending on settings
+  function applyZoomMode(viewRoot, state) {
+    if (!viewRoot) return;
+
+    // Find a target image inside viewer
+    const img = viewRoot.querySelector(SELECTORS.viewerImgQuery);
+    if (!img) {
+      // Try again a little later (NGY2 sometimes paints late)
+      setTimeout(() => applyZoomMode(viewRoot, state), 60);
+      return;
+    }
+
+    // Clean previous handlers
+    teardownWheelZoom(viewRoot);
+
+    if (state.hoverZoom) {
+      // Let NGY2’s hover behavior do its thing (no extra handlers)
+      return;
+    }
+
+    // Enable our wheel zoom + drag pan
+    setupWheelZoom(viewRoot, img, state);
+  }
+
+  function setupWheelZoom(viewRoot, img, state) {
+    const step = Number(state.hoverZoomScale || 1.08);
+    let scale = 1;
+    let isDragging = false;
+    let originX = 0;
+    let originY = 0;
+    let lastClientX = 0;
+    let lastClientY = 0;
+
+    img.style.transformOrigin = "center center";
+    img.style.willChange = "transform";
+    img.style.transition = "transform 60ms linear";
+
+    const onWheel = (ev) => {
+      ev.preventDefault();
+
+      const rect = img.getBoundingClientRect();
+      const cx = ev.clientX - rect.left;
+      const cy = ev.clientY - rect.top;
+
+      // Zoom in/out
+      const dir = ev.deltaY < 0 ? 1 : -1;
+      const nextScale = clamp(scale * Math.pow(step, dir), 1, 8);
+
+      // Adjust transform-origin to zoom toward pointer
+      const ox = (cx / rect.width) * 100;
+      const oy = (cy / rect.height) * 100;
+      img.style.transformOrigin = `${ox}% ${oy}%`;
+      scale = nextScale;
+      img.style.transform = `scale(${scale})`;
+
+      if (scale === 1) {
+        img.style.cursor = "default";
+      } else {
+        img.style.cursor = isDragging ? "grabbing" : "grab";
+      }
+    };
+
+    const onDown = (ev) => {
+      if (scale === 1) return;
+      isDragging = true;
+      lastClientX = ev.clientX;
+      lastClientY = ev.clientY;
+
+      const m = getComputedStyle(img).transform;
+      const parsed = parseMatrix(m);
+      originX = parsed.translateX || 0;
+      originY = parsed.translateY || 0;
+
+      img.style.cursor = "grabbing";
+      ev.preventDefault();
+    };
+
+    const onMove = (ev) => {
+      if (!isDragging) return;
+      const dx = ev.clientX - lastClientX;
+      const dy = ev.clientY - lastClientY;
+      lastClientX = ev.clientX;
+      lastClientY = ev.clientY;
+
+      const tx = originX + dx;
+      const ty = originY + dy;
+
+      img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    };
+
+    const onUp = () => {
+      if (!isDragging) return;
+      isDragging = false;
+      img.style.cursor = scale === 1 ? "default" : "grab";
+
+      // Update origin from the last applied transform
+      const m = getComputedStyle(img).transform;
+      const parsed = parseMatrix(m);
+      originX = parsed.translateX || 0;
+      originY = parsed.translateY || 0;
+    };
+
+    viewRoot.addEventListener("wheel", onWheel, { passive: false });
+    viewRoot.addEventListener("mousedown", onDown);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+
+    viewRoot._gpWheelZoom = { onWheel, onDown, onMove, onUp, img };
+  }
+
+  function teardownWheelZoom(viewRoot) {
+    const wz = viewRoot?._gpWheelZoom;
+    if (!wz) return;
+    viewRoot.removeEventListener("wheel", wz.onWheel);
+    viewRoot.removeEventListener("mousedown", wz.onDown);
+    window.removeEventListener("mousemove", wz.onMove);
+    window.removeEventListener("mouseup", wz.onUp);
+
+    if (wz.img) {
+      wz.img.style.transform = "";
+      wz.img.style.transformOrigin = "";
+      wz.img.style.cursor = "";
+      wz.img.style.transition = "";
+      wz.img.style.willChange = "";
+    }
+    delete viewRoot._gpWheelZoom;
+  }
+
+  function parseMatrix(m) {
+    // matrix(a, b, c, d, tx, ty) or matrix3d(...)
+    if (!m || m === "none") return {};
+    if (m.startsWith("matrix3d(")) {
+      const v = m
+        .slice(9, -1)
+        .split(",")
+        .map((x) => parseFloat(x.trim()));
+      return { translateX: v[12] || 0, translateY: v[13] || 0 };
+    }
+    if (m.startsWith("matrix(")) {
+      const v = m
+        .slice(7, -1)
+        .split(",")
+        .map((x) => parseFloat(x.trim()));
+      return { translateX: v[4] || 0, translateY: v[5] || 0 };
+    }
+    return {};
+  }
+
+  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+
+  // ---------- TOAST ----------
+  let toastTimer = null;
+  function toast(msg = "") {
+    let el = document.getElementById("gp_toast");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "gp_toast";
+      el.style.position = "fixed";
+      el.style.right = "16px";
+      el.style.bottom = "16px";
+      el.style.zIndex = "999999";
+      el.style.padding = "10px 12px";
+      el.style.borderRadius = "10px";
+      el.style.background = "rgba(0,0,0,.6)";
+      el.style.color = "#fff";
+      el.style.fontSize = "13px";
+      el.style.backdropFilter = "blur(6px)";
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.opacity = "1";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (el.style.opacity = "0"), 1400);
+  }
+
+  // ---------- OBSERVERS ----------
+  function watchGalleryAndViewer() {
+    // Apply saved panel rect and retitle as soon as #gallery appears
+    const galleryObserver = new MutationObserver(() => {
+      const panel = document.querySelector(SELECTORS.galleryPanel);
+      if (panel) {
+        retitleGallery();
+
+        const st = getSettings();
+        if (st.viewerRect) {
+          applyPanelRect(panel, st.viewerRect);
+        }
+      }
+    });
+    galleryObserver.observe(document.body, { childList: true, subtree: true });
+
+    // Watch for viewer overlay creation (NGY2)
+    const viewerObserver = new MutationObserver((list) => {
+      for (const m of list) {
+        for (const n of m.addedNodes) {
+          if (!(n instanceof HTMLElement)) continue;
+          if (n.matches?.(SELECTORS.viewerRoot) || n.querySelector?.(SELECTORS.viewerRoot)) {
+            const root = n.matches?.(SELECTORS.viewerRoot) ? n : n.querySelector(SELECTORS.viewerRoot);
+            if (root) {
+              gpEnhanceViewer(root);
+            }
+          }
+        }
+      }
+    });
+    viewerObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // ---------- SETUP / REGISTER ----------
+  function setup() {
+    log("fetch shim active (if present) and index.js loaded");
+    // Initial attempt for already-mounted gallery
+    retitleGallery();
+
+    // Start observers
+    watchGalleryAndViewer();
+
+    // If the gallery panel is already present on load, apply defaults immediately.
+    const panel = document.querySelector(SELECTORS.galleryPanel);
+    if (panel) {
+      const st = getSettings();
+      if (st.viewerRect) applyPanelRect(panel, st.viewerRect);
+    }
+  }
+
+  // SillyTavern extension loader compatibility
+  if (typeof window.registerExtension === "function") {
+    window.registerExtension({
+      name: EXT_NAME,
+      setup: async () => setup(),
+      onEnable: async () => {
+        updateSettings({ enabled: true });
+        setup();
+      },
+      onDisable: async () => {
+        updateSettings({ enabled: false });
+      },
+    });
+  } else {
+    // Fallback: run immediately
+    setup();
+  }
 })();
