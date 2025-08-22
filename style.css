@@ -42,7 +42,6 @@
 
 /* Let NGY2 compute its own sub-height (fixes “images not showing”) */
 #gallery .nGY2GallerySub {
-  height: unset !important;            /* undo “height:auto !important” */
   min-height: 0 !important;
 }
 
