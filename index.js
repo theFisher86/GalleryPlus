@@ -504,4 +504,264 @@
     // Fallback: run immediately
     setup();
   }
+/* ====================== GalleryPlus: viewer controls & wiring ====================== */
+
+(function GP_bootstrap() {
+  const GP_NS = 'GalleryPlus';
+
+  // --- settings helpers ---
+  function gpDefaults() {
+    return {
+      enabled: true,
+      diag: Date.now(),
+      openHeight: 800,
+      hoverZoom: true,
+      hoverZoomScale: 1.08,
+      viewerRect: null,
+      masonryDense: false,
+      showCaptions: true,
+      webpOnly: false,
+    };
+  }
+  function gpGetSettings() {
+    const ctx = window.SillyTavern?.getContext?.();
+    const cur = ctx?.extensionSettings?.[GP_NS] || {};
+    return Object.assign(gpDefaults(), cur);
+  }
+  function gpSaveSettings(s) {
+    const ctx = window.SillyTavern?.getContext?.();
+    if (!ctx) return;
+    ctx.extensionSettings[GP_NS] = s;
+    if (window.saveSettingsDebounced) window.saveSettingsDebounced();
+  }
+
+  // -- rename the gallery title safely (no ?. assignment) --
+  function gpFixGalleryTitle() {
+    const el = document.querySelector('#gallery .dragTitle span');
+    if (el && el.textContent !== 'Image GalleryPlus') {
+      el.textContent = 'Image GalleryPlus';
+    }
+  }
+
+  // observe gallery container to keep the title correct
+  const gpTitleObserver = new MutationObserver(gpFixGalleryTitle);
+  const titleTarget = document.body;
+  gpTitleObserver.observe(titleTarget, { subtree: true, childList: true });
+
+  // state per viewer
+  const viewerState = new WeakMap();
+
+  function updateZoomIcon(btn, s) {
+    btn.style.opacity = s.hoverZoom ? '1' : '0.7';
+    btn.title = s.hoverZoom
+      ? 'Hover-zoom ON (click to switch to wheel zoom)'
+      : 'Wheel-zoom ON (click to switch to hover zoom)';
+  }
+
+  function applyViewerRect(root, rect) {
+    if (!rect) return;
+    root.style.inset = `${rect.top}px auto auto ${rect.left}px`;
+    root.style.width = rect.width + 'px';
+    root.style.height = rect.height + 'px';
+  }
+
+  function saveRect(root) {
+    const r = root.getBoundingClientRect();
+    const s = gpGetSettings();
+    s.viewerRect = {
+      left: Math.round(r.left),
+      top: Math.round(r.top),
+      width: Math.round(r.width),
+      height: Math.round(r.height),
+    };
+    gpSaveSettings(s);
+    console.debug('[GP] saved viewerRect', s.viewerRect);
+  }
+
+  function applyMode(root, img, s) {
+    // cleanup previous handlers, if any
+    const prev = viewerState.get(root);
+    if (prev?.cleanup) prev.cleanup();
+
+    const st = prev || { scale: 1, tx: 0, ty: 0, dragging: false, lastX: 0, lastY: 0 };
+    viewerState.set(root, st);
+
+    // shared img styling
+    Object.assign(img.style, {
+      maxWidth: '100%',
+      maxHeight: '100%',
+      objectFit: 'contain',
+      transformOrigin: 'center center',
+      willChange: 'transform',
+      display: 'block',
+      margin: 'auto',
+      userSelect: 'none',
+      pointerEvents: 'auto',
+    });
+    root.style.overflow = 'hidden';
+
+    // ensure it sits above the gallery
+    const z = parseInt(getComputedStyle(root).zIndex || '0', 10);
+    if (!Number.isFinite(z) || z < 5000) root.style.zIndex = '5001';
+
+    let cleanup = () => {};
+    if (s.hoverZoom) {
+      st.scale = s.hoverZoomScale || 1.08;
+      st.tx = 0; st.ty = 0;
+      const move = (ev) => {
+        const rect = root.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const dx = ev.clientX - cx;
+        const dy = ev.clientY - cy;
+        const damp = 0.08; // inverse movement "feel"
+        st.tx = -dx * damp;
+        st.ty = -dy * damp;
+        img.style.transform = `translate(${st.tx}px, ${st.ty}px) scale(${st.scale})`;
+      };
+      const leave = () => {
+        img.style.transform = `translate(0px, 0px) scale(${st.scale})`;
+      };
+      root.addEventListener('mousemove', move);
+      root.addEventListener('mouseleave', leave);
+      cleanup = () => {
+        root.removeEventListener('mousemove', move);
+        root.removeEventListener('mouseleave', leave);
+      };
+    } else {
+      st.scale = Math.max(1, st.scale || 1);
+      const wheel = (ev) => {
+        if (!ev.ctrlKey) ev.preventDefault(); // keep natural wheel zoom
+        const delta = -Math.sign(ev.deltaY) * 0.1;
+        st.scale = Math.min(6, Math.max(1, st.scale + delta));
+        img.style.transform = `translate(${st.tx}px, ${st.ty}px) scale(${st.scale})`;
+      };
+      const down = (ev) => {
+        if (st.scale <= 1) return;
+        st.dragging = true;
+        st.lastX = ev.clientX;
+        st.lastY = ev.clientY;
+        ev.preventDefault();
+      };
+      const move = (ev) => {
+        if (!st.dragging) return;
+        const dx = ev.clientX - st.lastX;
+        const dy = ev.clientY - st.lastY;
+        st.lastX = ev.clientX;
+        st.lastY = ev.clientY;
+        st.tx += dx;
+        st.ty += dy;
+        img.style.transform = `translate(${st.tx}px, ${st.ty}px) scale(${st.scale})`;
+      };
+      const up = () => { st.dragging = false; };
+
+      root.addEventListener('wheel', wheel, { passive: false });
+      root.addEventListener('mousedown', down);
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+      cleanup = () => {
+        root.removeEventListener('wheel', wheel);
+        root.removeEventListener('mousedown', down);
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+      };
+    }
+    st.cleanup = cleanup;
+  }
+
+  function enhanceViewer(root) {
+    if (!root || !(root instanceof HTMLElement)) return;
+    if (root.classList.contains('gp-armed')) return;
+    root.classList.add('gp-armed');
+
+    // get the <img> the viewer is showing
+    const img = root.querySelector('img');
+    if (!img) return;
+
+    // apply persisted rect if any
+    applyViewerRect(root, gpGetSettings().viewerRect);
+
+    // mount controls into the bar
+    const bar = root.querySelector('.panelControlBar');
+    if (bar && !bar.querySelector('.gp-controls')) {
+      const ctrls = document.createElement('div');
+      ctrls.className = 'gp-controls';
+      ctrls.style.display = 'flex';
+      ctrls.style.gap = '6px';
+      ctrls.style.alignItems = 'center';
+
+      const save = document.createElement('button');
+      save.className = 'gp-btn gp-save';
+      save.type = 'button';
+      save.title = 'Save as default size and location';
+      save.textContent = '💾';
+
+      const zoom = document.createElement('button');
+      zoom.className = 'gp-btn gp-zoom';
+      zoom.type = 'button';
+      zoom.title = 'Toggle hover zoom / wheel zoom';
+      zoom.textContent = '🔍';
+
+      [save, zoom].forEach(b => {
+        b.style.border = 'none';
+        b.style.background = 'transparent';
+        b.style.cursor = 'pointer';
+        b.style.fontSize = '16px';
+        b.style.lineHeight = '1';
+        b.style.padding = '0 4px';
+      });
+
+      // insert before the "X" close button if present
+      const closeBtn = bar.querySelector('.dragClose');
+      if (closeBtn) bar.insertBefore(ctrls, closeBtn);
+      else bar.appendChild(ctrls);
+
+      ctrls.appendChild(save);
+      ctrls.appendChild(zoom);
+
+      save.addEventListener('click', () => saveRect(root));
+      zoom.addEventListener('click', () => {
+        const s = gpGetSettings();
+        s.hoverZoom = !s.hoverZoom;
+        gpSaveSettings(s);
+        applyMode(root, img, s);
+        updateZoomIcon(zoom, s);
+      });
+
+      updateZoomIcon(zoom, gpGetSettings());
+    }
+
+    // apply zoom mode behavior
+    applyMode(root, img, gpGetSettings());
+  }
+
+  // watch for new viewers
+  function scanExisting() {
+    document.querySelectorAll('.galleryImageDraggable').forEach(enhanceViewer);
+  }
+  if (!window.__GP_VIEW_OBS__) {
+    const mo = new MutationObserver(muts => {
+      for (const m of muts) {
+        for (const n of m.addedNodes) {
+          if (n.nodeType !== 1) continue;
+          if (n.classList?.contains('galleryImageDraggable')) enhanceViewer(n);
+          n.querySelectorAll?.('.galleryImageDraggable')?.forEach(enhanceViewer);
+        }
+      }
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+    window.__GP_VIEW_OBS__ = mo;
+  }
+  // run once in case a viewer is already open
+  scanExisting();
+  // force the drawer title now and whenever #gallery re-renders
+  gpFixGalleryTitle();
+
+  // expose tiny debug helpers (handy in console)
+  window.__GP = Object.assign(window.__GP || {}, {
+    forceScan: scanExisting,
+    enhanceViewer,
+    getSettings: gpGetSettings,
+  });
+})();
 })();
