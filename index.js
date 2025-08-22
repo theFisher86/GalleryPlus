@@ -9,6 +9,21 @@
     return;
   }
 
+  // ---- Helpers --------------------------------------------------------------
+function gpCtx() {
+  const ctx = SillyTavern?.getContext?.();
+  if (!ctx.extensionSettings.GalleryPlus) ctx.extensionSettings.GalleryPlus = {};
+  return ctx;
+}
+function gpGet() {
+  return gpCtx().extensionSettings.GalleryPlus;
+}
+function gpPatch(patch) {
+  const ctx = gpCtx();
+  ctx.extensionSettings.GalleryPlus = { ...ctx.extensionSettings.GalleryPlus, ...patch };
+  (SillyTavern?.saveSettingsDebounced || window.saveSettingsDebounced)?.();
+}
+
   // ---- Settings bootstrap ---------------------------------------------------
   const ctx = ST.getContext?.() || {};
   ctx.extensionSettings ??= {};
@@ -197,6 +212,122 @@
     }
   });
   viewerObserver.observe(document.body, { childList: true, subtree: true });
+
+  function gpEnhanceViewer(root) {
+  // rename the gallery title in the main drawer when we open any viewer
+  document.querySelector('#gallery .dragTitle span')?.textContent = 'Image GalleryPlus';
+
+  // controls bar
+  const controls = document.createElement('div');
+  controls.className = 'gp-controls';
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'gp-btn';
+  saveBtn.title = 'Save as default size and location';
+  saveBtn.textContent = '💾';
+  saveBtn.addEventListener('click', () => {
+    const left = parseFloat(root.style.left) || root.getBoundingClientRect().left;
+    const top = parseFloat(root.style.top) || root.getBoundingClientRect().top;
+    const width = root.offsetWidth;
+    const height = root.offsetHeight;
+    gpPatch({ defaultRect: { left, top, width, height } });
+  });
+
+  const zoomBtn = document.createElement('button');
+  zoomBtn.className = 'gp-btn';
+  zoomBtn.title = 'Toggle zoom mode (hover ↔ wheel)';
+  zoomBtn.textContent = '🔍';
+  zoomBtn.addEventListener('click', () => {
+    const cur = gpGet().zoomMode || 'hover';
+    const next = cur === 'hover' ? 'wheel' : 'hover';
+    gpPatch({ zoomMode: next });
+    gpApplyZoomMode(root, next);
+  });
+
+  controls.append(saveBtn, zoomBtn);
+  root.appendChild(controls);
+
+  // apply default rect if present
+  const s = gpGet();
+  if (s.defaultRect) {
+    const r = s.defaultRect;
+    Object.assign(root.style, {
+      left: `${Math.round(r.left)}px`,
+      top: `${Math.round(r.top)}px`,
+      width: `${Math.round(r.width)}px`,
+      height: `${Math.round(r.height)}px`,
+    });
+  }
+
+  // default zoom mode from settings
+  gpApplyZoomMode(root, (gpGet().zoomMode || (gpGet().hoverZoom ? 'hover' : 'wheel')));
+}
+
+function gpApplyZoomMode(root, mode) {
+  const img = root.querySelector('img');
+  if (!img) return;
+
+  // clean old listeners/state
+  img.classList.add('gp-zoom-img');
+  root.classList.remove('gp-zoom-hover', 'gp-zoom-wheel');
+  root.onmousemove = null;
+  root.onmouseleave = null;
+  root.onwheel = null;
+  root.onmousedown = null;
+  window.removeEventListener?.('__gp_mouseup__', root.__gpMouseUp);
+
+  if (mode === 'hover') {
+    root.classList.add('gp-zoom-hover');
+
+    // slight inverse “parallax” hover zoom using your existing scale
+    const base = gpGet().hoverZoomScale || 1.08;
+    root.onmousemove = (e) => {
+      const rect = img.getBoundingClientRect();
+      const cx = (e.clientX - rect.left) / rect.width;
+      const cy = (e.clientY - rect.top) / rect.height;
+      const dx = (0.5 - cx) * 12;   // inverse movement
+      const dy = (0.5 - cy) * 12;
+      img.style.transform = `translate(${dx}px, ${dy}px) scale(${base})`;
+    };
+    root.onmouseleave = () => { img.style.transform = 'translate(0,0) scale(1)'; };
+
+  } else { // 'wheel'
+    root.classList.add('gp-zoom-wheel');
+
+    let scale = gpGet().wheelScale || 1;
+    let tx = 0, ty = 0;
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; };
+
+    root.onwheel = (e) => {
+      e.preventDefault();
+      const f = e.deltaY < 0 ? 1.1 : 0.9;
+      scale = clamp(+((scale * f).toFixed(3)), 0.4, 6);
+      gpPatch({ wheelScale: scale });
+      apply();
+    };
+
+    // panning when zoomed-in
+    let down = false, lx = 0, ly = 0;
+    root.onmousedown = (e) => { if (scale <= 1) return; down = true; lx = e.clientX; ly = e.clientY; };
+    root.__gpMouseUp = () => { down = false; };
+    window.addEventListener('__gp_mouseup__', root.__gpMouseUp);
+    window.addEventListener('mouseup', root.__gpMouseUp);
+
+    root.addEventListener('mousemove', (e) => {
+      if (!down || scale <= 1) return;
+      const dx = e.clientX - lx;
+      const dy = e.clientY - ly;
+      lx = e.clientX; ly = e.clientY;
+      tx += dx; ty += dy;
+      apply();
+    });
+
+    apply();
+  }
+}
+
+
 
   // ---- Safety: defensive parsing for /api/images/list results ----------------
   // If you patched a fetch shim earlier, leave it in place; just ensure we never crash on non-arrays.
