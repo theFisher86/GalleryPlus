@@ -1,10 +1,10 @@
 {
   "display_name": "GalleryPlus",
-  "loading_order": 50,
+  "loading_order": 9999,
   "js": "index.js",
   "css": "style.css",
-  "author": "you",
-  "version": "0.1.0",
+  "author": "theFisher86",
+  "version": "0.1.2",
   "homePage": "https://github.com/theFisher86/GalleryPlus",
-  "auto_update": false
+  "auto_update": true
 }
