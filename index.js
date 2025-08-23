@@ -512,7 +512,7 @@
       const p = clamp((now - startT) / transMs, 0, 1);
 
       // Slight rotation for a bit of swirl momentum
-      svg.style.transform = `rotate(${15 * p}deg)`;
+      svg.style.transform = `rotate(${30 * p}deg)`; // default 15 * p
 
       // Grow the visible portion of the spiral along its length
       const visibleLen = L * (0.15 + 0.85 * p); // start with a small chunk
@@ -522,7 +522,7 @@
       stroke.style.strokeDashoffset = `${L - visibleLen}`;
 
       // Thicken stroke to fill area progressively (smooth reveal)
-      const maxSW = Math.max(w, h) * 0.25; // thick enough to cover
+      const maxSW = Math.max(w, h) * 0.45; // thick enough to cover default 0.25
       const sw = 8 + (maxSW - 8) * easeOutCubic(p);
       path.setAttribute('stroke-width', `${sw}`);
       stroke.setAttribute('stroke-width', `${Math.max(2, sw * 0.06)}`);
