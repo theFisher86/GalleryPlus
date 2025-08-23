@@ -1,17 +1,18 @@
-/* GalleryPlus — final styling
-   - Left controls row + button glow
-   - Theme-aware shadows
+/* GalleryPlus — UI + transitions (final)
+   - Left controls row + themed glows
+   - Window glow using QuoteColor
    - Layer/transition scaffolding
-   - Slideshow slider hover glow
-   - Spiral transition mask
+   - Slider hover glow using UnderlineColor
+   - Spiral SVG holder
+   - Fullscreen mode
 */
 
-/* ========== Controls (left of top bar) ========== */
+/* ===== Controls (left block) ===== */
 .gp-controls-left {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px 0 6px; /* small breathing room */
+  padding: 6px 8px 0 6px;
   user-select: none;
   z-index: 1;
 }
@@ -30,7 +31,6 @@
   color: inherit;
 }
 .gp-btn:hover {
-  /* theme underline glow */
   box-shadow: 0 0 12px var(--SmartThemeUnderlineColor, #7aa2f7);
   transform: translateY(-1px);
 }
@@ -57,7 +57,7 @@
 }
 
 .gp-transition {
-  width: 44px; /* nice and tight; emoji only */
+  width: 44px;
   text-align: center;
   padding: 2px 4px;
   border-radius: 6px;
@@ -66,17 +66,16 @@
   color: inherit;
 }
 
-/* ========== Themed window glow ========== */
+/* ===== Themed window glow ===== */
 #gallery.draggable,
 #gallery.draggable .galleryImageDraggable.draggable,
 .galleryImageDraggable.draggable {
-  /* window drop shadow glow using QuoteColor */
   box-shadow:
     0 6px 18px rgba(0, 0, 0, 0.3),
     0 0 20px 2px var(--SmartThemeQuoteColor, #7aa2f7);
 }
 
-/* ========== Layer scaffolding for transitions ========== */
+/* ===== Layer scaffolding ===== */
 .gp-layer-wrap {
   position: relative;
   width: 100%;
@@ -88,97 +87,51 @@
   object-fit: contain;
   width: 100%;
   height: 100%;
-  pointer-events: none;
+  /* allow dragging on image for panning */
+  cursor: grab;
 }
-.gp-layer.base {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
+.gp-panning .gp-layer-wrap > img.gp-layer {
+  cursor: grabbing !important;
 }
-.gp-layer.next {
-  z-index: 1;
-}
+.gp-layer.base { z-index: 0; }
+.gp-layer.next { z-index: 1; }
 
-/* Small saved pulse */
+/* small saved pulse */
 .gp-saved-pulse {
   box-shadow: 0 0 0 2px var(--SmartThemeUnderlineColor, #7aa2f7) inset !important;
   transition: box-shadow 240ms ease;
 }
 
-/* ========== Spiral transition ========== */
-/* Holder contains the next image and a mask layer */
-.gp-spiral-holder {
+/* ===== Spiral (SVG holder) ===== */
+.gp-spiral-svg-holder {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  z-index: 2; /* above base image */
-  --gp-spiral-ms: 1200ms;
-  --gp-spiral-color: var(--SmartThemeQuoteColor, #7aa2f7);
-  --gp-spiral-width: 0.18; /* thickness factor (0..1) */
-  --gp-spiral-rot: 1turn;  /* final rotation */
+  z-index: 2;
+  pointer-events: none;
 }
-
-/* Next image sits under the spiral mask layer */
-.gp-spiral-holder > img.gp-layer.next {
-  position: absolute;
-  inset: 0;
+.gp-spiral-svg {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  z-index: 0;
+  display: block;
 }
 
-/* Spiral mask overlay (uses conic-gradient with transparency bands)
-   We also rotate it to create motion and keep alignment at end. */
-.gp-spiral-mask {
+/* ===== Fullscreen ===== */
+.gp-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  z-index: 999999 !important;
+  background: rgba(0, 0, 0, 0.92);
+}
+.gp-fullscreen .panelControlBar {
+  display: none !important;
+}
+.gp-fullscreen .gp-controls-left {
   position: absolute;
-  inset: -5%;
-  z-index: 1;
-  pointer-events: none;
-  /* The spiral look is simulated via conic banding + rotation */
-  --c: var(--gp-spiral-color);
-  --w: var(--gp-spiral-width);
-  background:
-    conic-gradient(
-      from 0deg,
-      rgba(0,0,0,0) 0%,
-      rgba(0,0,0,0) calc((1 - var(--w)) * 100%),
-      var(--c) calc((1 - var(--w)) * 100% + 0.1%),
-      var(--c) 100%
-    );
-  mix-blend-mode: screen; /* nice luminous feel over next image */
-  opacity: 0.0;
-  transform: rotate(0turn) scale(0.8);
-}
-
-/* Play animation */
-.gp-spiral-holder.play .gp-spiral-mask {
-  animation:
-    gp-spiral-fade var(--gp-spiral-ms) ease forwards,
-    gp-spiral-rot var(--gp-spiral-ms) ease forwards;
-}
-
-/* Fade the band in then subtly out as it expands */
-@keyframes gp-spiral-fade {
-  0% { opacity: 0.0; transform: rotate(0turn) scale(0.8); }
-  30% { opacity: 0.85; }
-  70% { opacity: 0.55; }
-  100% { opacity: 0.0; transform: rotate(var(--gp-spiral-rot)) scale(1.25); }
-}
-
-/* Rotation is separated to guarantee full 360° by the end */
-@keyframes gp-spiral-rot {
-  0% { transform: rotate(0turn) scale(0.8); }
-  100% { transform: rotate(var(--gp-spiral-rot)) scale(1.25); }
-}
-
-/* Ensure gallery thumbnails and viewer images never get cropped (contain) */
-#gallery img,
-.galleryImageDraggable img {
-  object-fit: contain !important;
-}
-
-/* Ensure our left controls never block dragging on the grip */
-.gp-controls-left + .panelControlBar .drag-grabber {
-  pointer-events: auto;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
 }

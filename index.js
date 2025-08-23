@@ -1,20 +1,10 @@
 /* GalleryPlus — SillyTavern extension
- * Final cleaned build: transitions, slideshow, zoom, theme glow
- * Author: you + buddy copilot 😉
- *
- * Major features:
- * - Viewer controls on the LEFT of the top bar (💾, 🔍, ⏯️ + speed slider + transition select)
- * - Scroll-wheel zoom (with optional hover-pan zoom mode)
- * - Slideshow with crossfade / spiral / push-horizontal / push-vertical transitions
- * - Preloading of next image(s)
- * - Keyboard nav (Left/Right arrows to switch, Space to toggle slideshow, Esc to close)
- * - Theme-aware glows via SillyTavern CSS variables (Underline + Quote colors)
- * - Respects MovingUI drag/resize (we don’t hijack)
- *
- * Implementation notes:
- * - We wire up new viewer windows via a MutationObserver.
- * - We leave gallery pagination alone (your CSS fix handles it).
- * - We never crop the image; zoom/pan uses transforms only.
+ * Final build with:
+ * - Left controls (💾, 🔍, ⏯️, ⛶ + speed slider + transition select)
+ * - Scroll-wheel zoom (hover-zoom optional) + click-to-drag panning when hover-zoom is OFF
+ * - Slideshow (crossfade / spiral(SVG sweep) / push-horizontal / push-vertical)
+ * - Preload next image, keyboard nav, theme glows, fullscreen toggle
+ * - MovingUI drag/resize respected
  */
 
 (() => {
@@ -23,15 +13,15 @@
   const EXT_ID = 'GalleryPlus';
 
   // -------------------------------
-  // Settings (persisted)
+  // Settings
   // -------------------------------
   const DEFAULTS = {
     enabled: true,
     diag: Date.now(),
     openHeight: 800,
-    hoverZoom: false,         // false = scroll zoom only; true = slight hover-pan zoom
-    hoverZoomScale: 1.08,
-    viewerRect: null,         // { top, left, width, height } (applied to new viewers)
+    hoverZoom: false,          // false => scroll-zoom + click-drag pan
+    hoverZoomScale: 1.08,      // used if hoverZoom:true
+    viewerRect: null,
     masonryDense: false,
     showCaptions: true,
     webpOnly: false,
@@ -55,7 +45,6 @@
       }
       return c.extensionSettings[EXT_ID];
     }
-    // Fallback to localStorage if ST context is unavailable
     const raw = localStorage.getItem('GP_SETTINGS');
     if (!raw) {
       const init = { ...DEFAULTS };
@@ -88,27 +77,21 @@
   // -------------------------------
   // Theme helpers
   // -------------------------------
-  function cssVar(varName, fallback = '') {
-    const root = document.documentElement;
-    const v = getComputedStyle(root).getPropertyValue(varName).trim();
-    if (v) return v;
-    // ST sometimes places theme vars on body as inline style
-    const vb = getComputedStyle(document.body).getPropertyValue(varName).trim();
-    return vb || fallback;
+  function cssVar(name, fallback = '') {
+    const r = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    if (r) return r;
+    const b = getComputedStyle(document.body).getPropertyValue(name).trim();
+    return b || fallback;
   }
-
   function themeUnderlineColor() {
-    // used for button/slider hover glow
     return cssVar('--SmartThemeUnderlineColor', '#7aa2f7');
   }
-
   function themeQuoteColor() {
-    // used for window glow, spiral accent
     return cssVar('--SmartThemeQuoteColor', '#7aa2f7');
   }
 
   // -------------------------------
-  // Gallery title tweak
+  // Gallery title → Image GalleryPlus
   // -------------------------------
   function applyGalleryTitle() {
     const t = document.querySelector('#gallery .dragTitle span');
@@ -116,90 +99,91 @@
       t.textContent = 'Image GalleryPlus';
     }
   }
-
-  // Re-apply title when gallery opens
-  const galleryObserver = new MutationObserver(() => {
-    applyGalleryTitle();
-  });
+  const galleryObserver = new MutationObserver(applyGalleryTitle);
   galleryObserver.observe(document.body, { childList: true, subtree: true });
+  applyGalleryTitle();
 
   // -------------------------------
-  // Wire up new viewer windows
+  // Observe new viewer windows
   // -------------------------------
   const viewerObserver = new MutationObserver((muts) => {
     for (const m of muts) {
       for (const n of m.addedNodes) {
         if (!(n instanceof HTMLElement)) continue;
-        // Viewer markup looks like: <div class="draggable galleryImageDraggable" id="draggable_*"><div class="dragTitle">...</div><div class="panelControlBar">...</div><img ...></div>
-        if (n.matches?.('.draggable.galleryImageDraggable')) {
-          wireViewer(n);
-        }
-        // Also if the viewer is nested later
-        const sub = n.querySelectorAll?.('.draggable.galleryImageDraggable');
-        if (sub && sub.length) sub.forEach(wireViewer);
+        if (n.matches?.('.draggable.galleryImageDraggable')) wireViewer(n);
+        n.querySelectorAll?.('.draggable.galleryImageDraggable')?.forEach(wireViewer);
       }
     }
   });
   viewerObserver.observe(document.body, { childList: true, subtree: true });
 
   // -------------------------------
-  // Viewer wiring
+  // Wire viewer
   // -------------------------------
   function wireViewer(root) {
     if (!root || root.dataset.gpWired === '1') return;
     root.dataset.gpWired = '1';
 
-    // Ensure title strip exists (SillyTavern markup has .panelControlBar already)
     const pcBar = root.querySelector('.panelControlBar');
     if (!pcBar) return;
 
     injectLeftControls(root, pcBar);
-    wireZoom(root);
+    wireZoomAndPan(root);
     wireKeyboardNav(root);
     applyDefaultRect(root);
+    wireFullscreenStateSync(root);
   }
 
   // -------------------------------
-  // Control injection (left of panelControlBar)
+  // Left controls (before panelControlBar)
   // -------------------------------
   function injectLeftControls(root, pcBar) {
-    // Container to sit BEFORE the panelControlBar (left side)
     let left = root.querySelector(':scope > .gp-controls-left');
     if (!left) {
       left = document.createElement('div');
       left.className = 'gp-controls-left';
-      // place before panelControlBar to ensure "left of entire bar"
       root.insertBefore(left, pcBar);
     } else {
       left.innerHTML = '';
     }
 
-    // Controls: 💾 (save pos/size), 🔍 (toggle zoom), ⏯️ (slideshow)
+    // 💾 save default size/pos
     const saveBtn = document.createElement('button');
     saveBtn.className = 'gp-btn gp-save';
     saveBtn.title = 'Save as default size and location';
     saveBtn.textContent = '💾';
     saveBtn.addEventListener('click', () => saveDefaultRect(root));
 
+    // 🔍 toggle hover zoom
     const zoomBtn = document.createElement('button');
     zoomBtn.className = 'gp-btn gp-zoom';
-    zoomBtn.title = 'Toggle hover zoom (off = scroll zoom)';
+    zoomBtn.title = 'Toggle hover zoom (off = scroll zoom + pan)';
     zoomBtn.textContent = '🔍';
-    const s = gpSettings();
-    if (s.hoverZoom) zoomBtn.classList.add('active');
+    zoomBtn.classList.toggle('active', !!gpSettings().hoverZoom);
     zoomBtn.addEventListener('click', () => {
       const ns = !gpSettings().hoverZoom;
       gpSaveSettings({ hoverZoom: ns });
       zoomBtn.classList.toggle('active', ns);
-      // No need to rewire; wireZoom checks flag on wheel/move
     });
 
+    // ⏯️ start/pause slideshow
     const playBtn = document.createElement('button');
     playBtn.className = 'gp-btn gp-play';
     playBtn.title = 'Start / pause slideshow';
     playBtn.textContent = '⏯️';
+    playBtn.addEventListener('click', () => {
+      if (root.dataset.gpPlaying === '1') stopSlideshow(root);
+      else startSlideshow(root);
+    });
 
-    // Speed slider
+    // ⛶ fullscreen
+    const fsBtn = document.createElement('button');
+    fsBtn.className = 'gp-btn gp-fs';
+    fsBtn.title = 'Fullscreen slideshow';
+    fsBtn.textContent = '⛶';
+    fsBtn.addEventListener('click', () => toggleFullscreen(root));
+
+    // speed slider
     const speedWrap = document.createElement('div');
     speedWrap.className = 'gp-speed-wrap';
     const speed = document.createElement('input');
@@ -210,167 +194,176 @@
     speed.className = 'gp-speed';
     speed.value = String(gpSettings().slideshowSpeedSec ?? 3);
     speed.title = 'Slideshow delay (seconds)';
-    speed.addEventListener('input', () => {
-      // For spiral we warn visually if below 3s
+    function refreshSpeedWarn() {
       const trans = root.dataset.gpTransition || gpSettings().slideshowTransition || 'crossfade';
-      if (trans === 'spiral' && parseFloat(speed.value) < 3) {
-        speed.classList.add('gp-warn');
-      } else {
-        speed.classList.remove('gp-warn');
-      }
-    });
+      const delay = parseFloat(speed.value || '3');
+      if (trans === 'spiral' && delay < 3) speed.classList.add('gp-warn'); else speed.classList.remove('gp-warn');
+    }
+    speed.addEventListener('input', refreshSpeedWarn);
     speed.addEventListener('change', () => {
       let v = parseFloat(speed.value);
       if (!Number.isFinite(v) || v < 0.1) v = 0.1;
       if (v > 10) v = 10;
       gpSaveSettings({ slideshowSpeedSec: v });
-      const trans = root.dataset.gpTransition || gpSettings().slideshowTransition || 'crossfade';
-      if (trans === 'spiral' && v < 3) speed.classList.add('gp-warn'); else speed.classList.remove('gp-warn');
-      // If already running, restart with new timing
+      refreshSpeedWarn();
       if (root.dataset.gpPlaying === '1') startSlideshow(root);
     });
+    refreshSpeedWarn();
     speedWrap.appendChild(speed);
 
-    // Transition select (emoji-only + narrow)
+    // transition select
     const sel = document.createElement('select');
     sel.className = 'gp-transition';
     sel.title = 'Transition style';
-    // emoji label map
-    const opts = [
+    [
       ['crossfade', '😶‍🌫️'],
-      ['spiral', '😵‍💫'],
-      ['pushX', '➡️'],
-      ['pushY', '⬇️'],
-    ];
-    const current = gpSettings().slideshowTransition || 'crossfade';
-    opts.forEach(([v, lbl]) => {
+      ['spiral',    '😵‍💫'],
+      ['pushX',     '➡️'],
+      ['pushY',     '⬇️'],
+    ].forEach(([v, lbl]) => {
       const o = document.createElement('option');
-      o.value = v;
-      o.textContent = lbl;
-      if (v === current) o.selected = true;
+      o.value = v; o.textContent = lbl;
+      if ((gpSettings().slideshowTransition || 'crossfade') === v) o.selected = true;
       sel.appendChild(o);
     });
-    root.dataset.gpTransition = current;
-
+    root.dataset.gpTransition = gpSettings().slideshowTransition || 'crossfade';
     sel.addEventListener('change', () => {
       const v = sel.value;
       root.dataset.gpTransition = v;
       gpSaveSettings({ slideshowTransition: v });
-      // Spiral warning for too-fast speed
-      const delay = parseFloat(speed.value || '3');
-      if (v === 'spiral' && delay < 3) speed.classList.add('gp-warn'); else speed.classList.remove('gp-warn');
-    });
-
-    playBtn.addEventListener('click', () => {
-      if (root.dataset.gpPlaying === '1') {
-        stopSlideshow(root);
-      } else {
-        startSlideshow(root);
-      }
+      refreshSpeedWarn();
     });
 
     left.appendChild(saveBtn);
     left.appendChild(zoomBtn);
     left.appendChild(playBtn);
+    left.appendChild(fsBtn);
     left.appendChild(speedWrap);
     left.appendChild(sel);
   }
 
   // -------------------------------
-  // Apply / Save default rect
+  // Save/Apply rect
   // -------------------------------
   function saveDefaultRect(root) {
-    const style = root.style;
+    const st = root.style;
     const rect = {
-      top: style.top || (root.offsetTop + 'px'),
-      left: style.left || (root.offsetLeft + 'px'),
-      width: style.width || (root.clientWidth + 'px'),
-      height: style.height || (root.clientHeight + 'px'),
+      top: st.top || (root.offsetTop + 'px'),
+      left: st.left || (root.offsetLeft + 'px'),
+      width: st.width || (root.clientWidth + 'px'),
+      height: st.height || (root.clientHeight + 'px'),
     };
     gpSaveSettings({ viewerRect: rect });
-    // small visual nudge
     root.classList.add('gp-saved-pulse');
-    setTimeout(() => root.classList.remove('gp-saved-pulse'), 400);
+    setTimeout(() => root.classList.remove('gp-saved-pulse'), 350);
   }
 
   function applyDefaultRect(root) {
     const r = gpSettings().viewerRect;
     if (!r) return;
-    const style = root.style;
-    style.top = r.top;
-    style.left = r.left;
-    style.width = r.width;
-    style.height = r.height;
+    const st = root.style;
+    st.top = r.top; st.left = r.left; st.width = r.width; st.height = r.height;
   }
 
   // -------------------------------
-  // Zoom handling
+  // Zoom + Click-Drag Pan (when hoverZoom = false)
   // -------------------------------
-  function wireZoom(root) {
+  function wireZoomAndPan(root) {
     const img = root.querySelector('img');
     if (!img) return;
 
     let scale = 1;
-    let translateX = 0;
-    let translateY = 0;
+    let tx = 0, ty = 0;
+
+    let isPanning = false;
+    let panStartX = 0, panStartY = 0;
+    let panBaseX = 0, panBaseY = 0;
 
     function applyTransform() {
-      img.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+      img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
       img.style.transformOrigin = 'center center';
       img.style.willChange = 'transform';
     }
 
+    // Scroll zoom (only when hoverZoom is OFF)
     function onWheel(e) {
-      // hoverZoom=false => scroll zoom
-      if (gpSettings().hoverZoom) return; // when hoverZoom is ON, we don't intercept wheel
+      if (gpSettings().hoverZoom) return;
       if (!e.ctrlKey) {
         e.preventDefault();
         const delta = -Math.sign(e.deltaY) * 0.1;
         const newScale = Math.min(8, Math.max(0.1, scale + delta));
         if (newScale !== scale) {
-          // zoom to cursor
           const rect = img.getBoundingClientRect();
           const cx = e.clientX - rect.left;
           const cy = e.clientY - rect.top;
           const dx = (cx - rect.width / 2) / scale;
           const dy = (cy - rect.height / 2) / scale;
-          translateX -= dx * (newScale - scale);
-          translateY -= dy * (newScale - scale);
+          tx -= dx * (newScale - scale);
+          ty -= dy * (newScale - scale);
           scale = newScale;
           applyTransform();
         }
       }
     }
 
-    function onMouseMove(e) {
-      // hover-pan zoom mode
+    // Hover-zoom (gentle inverse pan) – when ON
+    function onMoveHover(e) {
       if (!gpSettings().hoverZoom) return;
       const rect = img.getBoundingClientRect();
-      const nx = ((e.clientX - rect.left) / rect.width - 0.5) * -1; // inverse move
+      const nx = ((e.clientX - rect.left) / rect.width - 0.5) * -1;
       const ny = ((e.clientY - rect.top) / rect.height - 0.5) * -1;
       const z = gpSettings().hoverZoomScale || 1.08;
       scale = z;
-      translateX = nx * rect.width * 0.05;
-      translateY = ny * rect.height * 0.05;
+      tx = nx * rect.width * 0.05;
+      ty = ny * rect.height * 0.05;
+      applyTransform();
+    }
+    function onLeaveHover() {
+      if (!gpSettings().hoverZoom) return;
+      scale = 1; tx = 0; ty = 0;
       applyTransform();
     }
 
-    function onMouseLeave() {
-      if (!gpSettings().hoverZoom) return;
-      scale = 1; translateX = 0; translateY = 0;
+    // Click-to-drag panning (only when hoverZoom is OFF)
+    function onMouseDown(e) {
+      if (gpSettings().hoverZoom) return;
+      if (e.button !== 0) return;
+      // Only pan if we are at least slightly zoomed
+      if (scale <= 1.001) return;
+      isPanning = true;
+      root.classList.add('gp-panning');
+      panStartX = e.clientX;
+      panStartY = e.clientY;
+      panBaseX = tx;
+      panBaseY = ty;
+      e.preventDefault();
+      window.addEventListener('mousemove', onMouseMovePan);
+      window.addEventListener('mouseup', onMouseUpPan, { once: true });
+    }
+    function onMouseMovePan(e) {
+      if (!isPanning) return;
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      tx = panBaseX + dx;
+      ty = panBaseY + dy;
       applyTransform();
+    }
+    function onMouseUpPan() {
+      isPanning = false;
+      root.classList.remove('gp-panning');
+      window.removeEventListener('mousemove', onMouseMovePan);
     }
 
     root.addEventListener('wheel', onWheel, { passive: false });
-    root.addEventListener('mousemove', onMouseMove);
-    root.addEventListener('mouseleave', onMouseLeave);
+    root.addEventListener('mousemove', onMoveHover);
+    root.addEventListener('mouseleave', onLeaveHover);
+    img.addEventListener('mousedown', onMouseDown);
 
-    // Initial reset
     applyTransform();
   }
 
   // -------------------------------
-  // Keyboard navigation
+  // Keyboard nav
   // -------------------------------
   function wireKeyboardNav(root) {
     function handler(e) {
@@ -378,101 +371,100 @@
         document.removeEventListener('keydown', handler);
         return;
       }
-      if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        goNext(root);
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        goPrev(root);
-      } else if (e.key === ' ') {
-        e.preventDefault();
-        if (root.dataset.gpPlaying === '1') stopSlideshow(root); else startSlideshow(root);
-      } else if (e.key === 'Escape') {
-        // close viewer
-        root.querySelector('.dragClose')?.click();
-      }
+      if (e.key === 'ArrowRight') { e.preventDefault(); goNext(root); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); goPrev(root); }
+      else if (e.key === ' ') { e.preventDefault(); root.dataset.gpPlaying === '1' ? stopSlideshow(root) : startSlideshow(root); }
+      else if (e.key === 'Escape') { root.querySelector('.dragClose')?.click(); }
     }
     document.addEventListener('keydown', handler);
   }
 
   // -------------------------------
-  // Slideshow
+  // Fullscreen
+  // -------------------------------
+  function toggleFullscreen(root) {
+    const isFS = document.fullscreenElement === root;
+    if (isFS) {
+      document.exitFullscreen?.();
+    } else {
+      // make the window fill the screen but keep our transitions
+      root.requestFullscreen?.({ navigationUI: 'hide' }).catch(()=>{});
+    }
+  }
+  function wireFullscreenStateSync(root) {
+    function onFSChange() {
+      const isFS = document.fullscreenElement === root;
+      root.classList.toggle('gp-fullscreen', isFS);
+    }
+    document.addEventListener('fullscreenchange', onFSChange);
+    // clean up if node removed
+    const obs = new MutationObserver(() => {
+      if (!document.body.contains(root)) {
+        document.removeEventListener('fullscreenchange', onFSChange);
+        obs.disconnect();
+      }
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // -------------------------------
+  // Slideshow core
   // -------------------------------
   function startSlideshow(root) {
     root.dataset.gpPlaying = '1';
-    const speed = gpSettings().slideshowSpeedSec || 3;
-    scheduleTick(root, speed);
+    scheduleTick(root, gpSettings().slideshowSpeedSec || 3);
   }
-
   function stopSlideshow(root) {
     root.dataset.gpPlaying = '0';
-    if (root._gpTimer) {
-      clearTimeout(root._gpTimer);
-      root._gpTimer = null;
-    }
+    if (root._gpTimer) { clearTimeout(root._gpTimer); root._gpTimer = null; }
   }
-
   function scheduleTick(root, secs) {
     if (root._gpTimer) clearTimeout(root._gpTimer);
     root._gpTimer = setTimeout(() => {
       if (root.dataset.gpPlaying !== '1') return;
-      goNext(root, true);
-      // reschedule with possibly updated speed
-      const s = gpSettings().slideshowSpeedSec || 3;
-      scheduleTick(root, s);
+      goNext(root);
+      scheduleTick(root, gpSettings().slideshowSpeedSec || 3);
     }, Math.max(100, secs * 1000));
   }
 
-  function goNext(root, fromSlide = false) {
+  function goNext(root) {
     const list = currentGalleryList();
     const img = root.querySelector('img');
     if (!img || !list.length) return;
-
     const i = indexInList(list, img.src);
     const nextIdx = (i + 1) % list.length;
     transitionTo(root, img, list[nextIdx]);
-    // Preload ahead
     preload(list[(nextIdx + 1) % list.length]);
   }
-
   function goPrev(root) {
     const list = currentGalleryList();
     const img = root.querySelector('img');
     if (!img || !list.length) return;
-
     const i = indexInList(list, img.src);
     const prevIdx = (i - 1 + list.length) % list.length;
     transitionTo(root, img, list[prevIdx]);
     preload(list[(prevIdx - 1 + list.length) % list.length]);
   }
 
-  // Collect sources from the visible gallery (#dragGallery)
   function currentGalleryList() {
-    const thumbs = document.querySelectorAll('#dragGallery img.nGY2GThumbnailImg, #dragGallery .nGY2GThumbnailImage.nGY2TnImg[data-ngsrc], #dragGallery .nGY2GThumbnailImage.nGY2TnImg');
+    const thumbs = document.querySelectorAll('#dragGallery img.nGY2GThumbnailImg, #dragGallery .nGY2GThumbnailImage.nGY2TnImg');
     const out = [];
     thumbs.forEach(t => {
-      // Prefer <img src>, fallback to background-image url
-      if (t instanceof HTMLImageElement && t.src) {
-        out.push(t.src);
-      } else if (t instanceof HTMLElement) {
+      if (t instanceof HTMLImageElement && t.src) out.push(t.src);
+      else if (t instanceof HTMLElement) {
         const bg = t.style.backgroundImage || '';
         const m = bg.match(/url\(["']?(.+?)["']?\)/);
         if (m) out.push(new URL(m[1], location.href).href);
       }
     });
-    // Uniquify in order
     return [...new Set(out)];
   }
-
   function indexInList(list, src) {
-    const norm = (u) => {
-      try { return new URL(u, location.href).href; } catch { return u; }
-    };
+    const norm = (u) => { try { return new URL(u, location.href).href; } catch { return u; } };
     const target = norm(src);
     const idx = list.findIndex(u => norm(u) === target);
     return idx >= 0 ? idx : 0;
   }
-
   function preload(src) {
     if (!src) return;
     const i = new Image();
@@ -488,7 +480,7 @@
     const mode = root.dataset.gpTransition || gpSettings().slideshowTransition || 'crossfade';
     switch (mode) {
       case 'spiral':
-        transitionSpiralRefined(root, baseImg, nextSrc, () => { baseImg.src = nextSrc; });
+        transitionSpiralSVG(root, baseImg, nextSrc, () => { baseImg.src = nextSrc; });
         break;
       case 'pushX':
         transitionPush(root, baseImg, nextSrc, true, () => { baseImg.src = nextSrc; });
@@ -504,11 +496,24 @@
   }
 
   function getTransitionMs() {
-    const delaySec = gpSettings().slideshowSpeedSec || 3;
-    let ms = Math.round((delaySec * 1000) / 3);  // ~1/3 of delay
+    const d = gpSettings().slideshowSpeedSec || 3;
+    let ms = Math.round((d * 1000) / 3);
     if (!Number.isFinite(ms) || ms < 450) ms = 450;
-    if (ms < 1000) ms = 1000; // smooth minimum
+    if (ms < 1000) ms = 1000;
     return ms;
+  }
+
+  function ensureLayerWrap(root, baseImg) {
+    let wrap = baseImg.parentElement;
+    if (!wrap || !wrap.classList?.contains('gp-layer-wrap')) {
+      const w = document.createElement('div');
+      w.className = 'gp-layer-wrap';
+      baseImg.replaceWith(w);
+      w.appendChild(baseImg);
+      wrap = w;
+    }
+    baseImg.classList.add('gp-layer', 'base');
+    return wrap;
   }
 
   function transitionCrossfade(root, baseImg, nextSrc, done) {
@@ -521,14 +526,8 @@
 
     const ms = getTransitionMs();
     next.style.transition = `opacity ${ms}ms ease`;
-    // start
     requestAnimationFrame(() => { next.style.opacity = '1'; });
-    setTimeout(() => {
-      // finalize
-      baseImg.src = nextSrc;
-      next.remove();
-      done?.();
-    }, ms + 30);
+    setTimeout(() => { baseImg.src = nextSrc; next.remove(); done?.(); }, ms + 30);
   }
 
   function transitionPush(root, baseImg, nextSrc, horizontal, done) {
@@ -540,59 +539,150 @@
 
     const ms = getTransitionMs();
     const axis = horizontal ? 'X' : 'Y';
-
-    // Setup positions
     next.style.transform = `translate${axis}(100%)`;
-    next.style.opacity = '1';
     baseImg.style.transform = `translate${axis}(0%)`;
     next.style.transition = `transform ${ms}ms ease`;
     baseImg.style.transition = `transform ${ms}ms ease, opacity ${ms}ms ease`;
 
-    // start
     requestAnimationFrame(() => {
       next.style.transform = `translate${axis}(0%)`;
       baseImg.style.transform = `translate${axis}(-100%)`;
-      baseImg.style.opacity = '1';
     });
 
     setTimeout(() => {
       baseImg.style.transform = '';
-      baseImg.style.opacity = '';
       baseImg.src = nextSrc;
       next.remove();
       done?.();
     }, ms + 30);
   }
 
-  // Spiral refined: smooth build + complete 360° alignment
-  function transitionSpiralRefined(root, baseImg, nextSrc, done) {
+  // --- Spiral (SVG mask sweep version; the “old” look you liked) ---
+  function transitionSpiralSVG(root, baseImg, nextSrc, done) {
     const wrap = ensureLayerWrap(root, baseImg);
+
+    // Holder
     const holder = document.createElement('div');
-    holder.className = 'gp-spiral-holder';
-    // next image sits above base but under the mask
-    const next = document.createElement('img');
-    next.className = 'gp-layer next';
-    next.src = nextSrc;
-    holder.appendChild(next);
-
-    const ring = document.createElement('div');
-    ring.className = 'gp-spiral-mask'; // CSS animates conic mask + rotation
-    holder.appendChild(ring);
-
+    holder.className = 'gp-spiral-svg-holder';
     wrap.appendChild(holder);
 
+    // SVG (1000x1000 viewBox for stable math)
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 1000 1000');
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.classList.add('gp-spiral-svg');
+
+    // defs + mask
+    const defs = document.createElementNS(SVG_NS, 'defs');
+    const mask = document.createElementNS(SVG_NS, 'mask');
+    const maskId = 'gpMask_' + Math.random().toString(36).slice(2);
+    mask.setAttribute('id', maskId);
+
+    const maskRect = document.createElementNS(SVG_NS, 'rect');
+    maskRect.setAttribute('x', '0');
+    maskRect.setAttribute('y', '0');
+    maskRect.setAttribute('width', '1000');
+    maskRect.setAttribute('height', '1000');
+    maskRect.setAttribute('fill', 'black');
+
+    // Spiral path (Archimedean) as polyline/path
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', 'white');
+    path.setAttribute('stroke-linecap', 'round');
+
+    const cX = 500, cY = 500;
+    const turns = 4.25;        // a nice amount of swirl
+    const a = 0;                // start radius
+    const b = 14;               // step (larger => wider spacing)
+    const step = 0.08;          // radian step
+    let d = '';
+    let started = false;
+    for (let t = 0; t <= Math.PI * 2 * turns; t += step) {
+      const r = a + b * t;
+      const x = cX + r * Math.cos(t);
+      const y = cY + r * Math.sin(t);
+      d += (started ? ' L ' : 'M ') + x.toFixed(2) + ' ' + y.toFixed(2);
+      started = true;
+    }
+    path.setAttribute('d', d);
+
+    // White spiral in mask
+    mask.appendChild(maskRect);
+    mask.appendChild(path);
+    defs.appendChild(mask);
+
+    // Next image inside SVG
+    const img = document.createElementNS(SVG_NS, 'image');
+    img.setAttributeNS('http://www.w3.org/1999/xlink', 'href', nextSrc);
+    img.setAttribute('x', '0');
+    img.setAttribute('y', '0');
+    img.setAttribute('width', '1000');
+    img.setAttribute('height', '1000');
+    img.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    img.setAttribute('mask', `url(#${maskId})`);
+
+    // Colored outline (thin) to echo theme color (not part of mask)
+    const colorPath = document.createElementNS(SVG_NS, 'path');
+    colorPath.setAttribute('d', d);
+    colorPath.setAttribute('fill', 'none');
+    colorPath.setAttribute('stroke', themeQuoteColor());
+    colorPath.setAttribute('stroke-linecap', 'round');
+    colorPath.setAttribute('opacity', '0.65');
+
+    // Group to rotate together
+    const gMask = document.createElementNS(SVG_NS, 'g');
+    gMask.setAttribute('transform-origin', '500 500');
+    gMask.appendChild(path);
+
+    const gColor = document.createElementNS(SVG_NS, 'g');
+    gColor.setAttribute('transform-origin', '500 500');
+    gColor.appendChild(colorPath);
+
+    svg.appendChild(defs);
+    svg.appendChild(img);
+    svg.appendChild(gMask);
+    svg.appendChild(gColor);
+    holder.appendChild(svg);
+
+    // Animate: dash sweep + stroke growth + rotation
     const ms = getTransitionMs();
-    const quote = themeQuoteColor();
 
-    // CSS custom props to steer animation
-    holder.style.setProperty('--gp-spiral-ms', `${ms}ms`);
-    holder.style.setProperty('--gp-spiral-color', quote);
-    // width factor makes stroke thicker
-    holder.style.setProperty('--gp-spiral-width', '0.18'); // tuned thicker
-    holder.style.setProperty('--gp-spiral-rot', '1turn');  // full 360°
+    // We need total length to make a sweep
+    requestAnimationFrame(() => {
+      const len = path.getTotalLength?.() || 3000;
+      // mask (white) spiral
+      path.style.strokeDasharray = String(len);
+      path.style.strokeDashoffset = String(len);
+      path.style.strokeWidth = '2';
 
-    // Kick
-    holder.classList.add('play');
+      // color spiral (thin outline)
+      colorPath.style.strokeDasharray = String(len);
+      colorPath.style.strokeDashoffset = String(len);
+      colorPath.style.strokeWidth = '1.2';
+
+      // transitions
+      const trans = `stroke-dashoffset ${ms}ms ease, stroke-width ${ms}ms ease, opacity ${ms}ms ease`;
+      path.style.transition = trans;
+      colorPath.style.transition = trans;
+      gMask.style.transition = `transform ${ms}ms ease`;
+      gColor.style.transition = `transform ${ms}ms ease`;
+
+      // kick
+      // dashoffset  -> 0 (draws spiral)
+      // strokeWidth -> big (fills area by end)
+      const finalStroke = 900; // thick enough to cover
+      requestAnimationFrame(() => {
+        path.style.strokeDashoffset = '0';
+        colorPath.style.strokeDashoffset = '0';
+        path.style.strokeWidth = String(finalStroke);
+        colorPath.style.strokeWidth = '3';
+        colorPath.style.opacity = '0.15'; // fade the outline a bit by end
+        gMask.style.transform = 'rotate(360deg)';
+        gColor.style.transform = 'rotate(360deg)';
+      });
+    });
 
     setTimeout(() => {
       baseImg.src = nextSrc;
@@ -600,28 +690,5 @@
       done?.();
     }, ms + 40);
   }
-
-  // Wrap the <img> in a positioned container if not yet present
-  function ensureLayerWrap(root, baseImg) {
-    let wrap = baseImg.parentElement;
-    // If parent is the viewer root, we add a wrapper so layers stack properly
-    if (wrap === root || !wrap.classList.contains('gp-layer-wrap')) {
-      const w = document.createElement('div');
-      w.className = 'gp-layer-wrap';
-      baseImg.replaceWith(w);
-      w.appendChild(baseImg);
-      wrap = w;
-    }
-    baseImg.classList.add('gp-layer', 'base');
-    return wrap;
-  }
-
-  // -------------------------------
-  // Kick things off
-  // -------------------------------
-  // Make sure the gallery title reads "Image GalleryPlus"
-  applyGalleryTitle();
-
-  // Nothing else to do here — MutationObservers do the rest.
 
 })();
