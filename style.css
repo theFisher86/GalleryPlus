@@ -460,3 +460,8 @@
 .gp-trans-select:focus {
   box-shadow: 0 0 8px var(--SmartThemeUnderlineColor);
 }
+
+/* shorten the slideshow slider */
+.gp-controls-left input[type="range"] {
+  width: 35% !important;
+}
