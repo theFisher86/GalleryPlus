@@ -407,7 +407,7 @@
     const delaySec = gpSettings().slideshowSpeedSec || 3;
     // const transMs  = Math.max(450, Math.round((delaySec * 1000) / 6)); // ~1/6 of delay
     let transMs = Math.round((delaySec * 1000) / 3); // ~1/3 of delay
-    transMs = Math.max(1000, transMs);               // ensure at least 1s
+    transMs = Math.max(2500, transMs);               // ensure at least 1s
 
 
     // Overlay SVG sized to viewer
@@ -516,7 +516,7 @@
       const p = clamp((now - startT) / transMs, 0, 1);
 
       // Slight rotation for a bit of swirl momentum
-      svg.style.transform = `rotate(${30 * p}deg)`; // default 15 * p
+      svg.style.transform = `rotate(${45 * p}deg)`; // default 15 * p
 
       // Grow the visible portion of the spiral along its length
       const visibleLen = L * (0.15 + 0.85 * p); // start with a small chunk
@@ -526,7 +526,7 @@
       stroke.style.strokeDashoffset = `${L - visibleLen}`;
 
       // Thicken stroke to fill area progressively (smooth reveal)
-      const maxSW = Math.max(w, h) * 0.45; // thick enough to cover default 0.25
+      const maxSW = Math.max(w, h) * 0.65; // thick enough to cover default 0.25
       const sw = 8 + (maxSW - 8) * easeOutCubic(p);
       path.setAttribute('stroke-width', `${sw}`);
       stroke.setAttribute('stroke-width', `${Math.max(2, sw * 0.06)}`);
