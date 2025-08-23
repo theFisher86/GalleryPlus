@@ -557,138 +557,280 @@
     }, ms + 30);
   }
 
-  // --- Spiral (SVG mask sweep version; the “old” look you liked) ---
-  function transitionSpiralSVG(root, baseImg, nextSrc, done) {
-    const wrap = ensureLayerWrap(root, baseImg);
+  // --- OLD - Spiral (SVG mask sweep version; the “old” look you liked) ---
+  // function transitionSpiralSVG(root, baseImg, nextSrc, done) {
+  //   const wrap = ensureLayerWrap(root, baseImg);
 
-    // Holder
-    const holder = document.createElement('div');
-    holder.className = 'gp-spiral-svg-holder';
-    wrap.appendChild(holder);
+  //   // Holder
+  //   const holder = document.createElement('div');
+  //   holder.className = 'gp-spiral-svg-holder';
+  //   wrap.appendChild(holder);
 
-    // SVG (1000x1000 viewBox for stable math)
-    const SVG_NS = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(SVG_NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 1000 1000');
-    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-    svg.classList.add('gp-spiral-svg');
+  //   // SVG (1000x1000 viewBox for stable math)
+  //   const SVG_NS = 'http://www.w3.org/2000/svg';
+  //   const svg = document.createElementNS(SVG_NS, 'svg');
+  //   svg.setAttribute('viewBox', '0 0 1000 1000');
+  //   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  //   svg.classList.add('gp-spiral-svg');
 
-    // defs + mask
-    const defs = document.createElementNS(SVG_NS, 'defs');
-    const mask = document.createElementNS(SVG_NS, 'mask');
-    const maskId = 'gpMask_' + Math.random().toString(36).slice(2);
-    mask.setAttribute('id', maskId);
+  //   // defs + mask
+  //   const defs = document.createElementNS(SVG_NS, 'defs');
+  //   const mask = document.createElementNS(SVG_NS, 'mask');
+  //   const maskId = 'gpMask_' + Math.random().toString(36).slice(2);
+  //   mask.setAttribute('id', maskId);
 
-    const maskRect = document.createElementNS(SVG_NS, 'rect');
-    maskRect.setAttribute('x', '0');
-    maskRect.setAttribute('y', '0');
-    maskRect.setAttribute('width', '1000');
-    maskRect.setAttribute('height', '1000');
-    maskRect.setAttribute('fill', 'black');
+  //   const maskRect = document.createElementNS(SVG_NS, 'rect');
+  //   maskRect.setAttribute('x', '0');
+  //   maskRect.setAttribute('y', '0');
+  //   maskRect.setAttribute('width', '1000');
+  //   maskRect.setAttribute('height', '1000');
+  //   maskRect.setAttribute('fill', 'black');
 
-    // Spiral path (Archimedean) as polyline/path
-    const path = document.createElementNS(SVG_NS, 'path');
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', 'white');
-    path.setAttribute('stroke-linecap', 'round');
+  //   // Spiral path (Archimedean) as polyline/path
+  //   const path = document.createElementNS(SVG_NS, 'path');
+  //   path.setAttribute('fill', 'none');
+  //   path.setAttribute('stroke', 'white');
+  //   path.setAttribute('stroke-linecap', 'round');
 
-    const cX = 500, cY = 500;
-    const turns = 4.25;        // a nice amount of swirl
-    const a = 0;                // start radius
-    const b = 14;               // step (larger => wider spacing)
-    const step = 0.08;          // radian step
-    let d = '';
-    let started = false;
-    for (let t = 0; t <= Math.PI * 2 * turns; t += step) {
-      const r = a + b * t;
-      const x = cX + r * Math.cos(t);
-      const y = cY + r * Math.sin(t);
-      d += (started ? ' L ' : 'M ') + x.toFixed(2) + ' ' + y.toFixed(2);
-      started = true;
-    }
-    path.setAttribute('d', d);
+  //   const cX = 500, cY = 500;
+  //   const turns = 4.25;        // a nice amount of swirl
+  //   const a = 0;                // start radius
+  //   const b = 14;               // step (larger => wider spacing)
+  //   const step = 0.08;          // radian step
+  //   let d = '';
+  //   let started = false;
+  //   for (let t = 0; t <= Math.PI * 2 * turns; t += step) {
+  //     const r = a + b * t;
+  //     const x = cX + r * Math.cos(t);
+  //     const y = cY + r * Math.sin(t);
+  //     d += (started ? ' L ' : 'M ') + x.toFixed(2) + ' ' + y.toFixed(2);
+  //     started = true;
+  //   }
+  //   path.setAttribute('d', d);
 
-    // White spiral in mask
-    mask.appendChild(maskRect);
-    mask.appendChild(path);
-    defs.appendChild(mask);
+  //   // White spiral in mask
+  //   mask.appendChild(maskRect);
+  //   mask.appendChild(path);
+  //   defs.appendChild(mask);
 
-    // Next image inside SVG
-    const img = document.createElementNS(SVG_NS, 'image');
-    img.setAttributeNS('http://www.w3.org/1999/xlink', 'href', nextSrc);
-    img.setAttribute('x', '0');
-    img.setAttribute('y', '0');
-    img.setAttribute('width', '1000');
-    img.setAttribute('height', '1000');
-    img.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-    img.setAttribute('mask', `url(#${maskId})`);
+  //   // Next image inside SVG
+  //   const img = document.createElementNS(SVG_NS, 'image');
+  //   img.setAttributeNS('http://www.w3.org/1999/xlink', 'href', nextSrc);
+  //   img.setAttribute('x', '0');
+  //   img.setAttribute('y', '0');
+  //   img.setAttribute('width', '1000');
+  //   img.setAttribute('height', '1000');
+  //   img.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  //   img.setAttribute('mask', `url(#${maskId})`);
 
-    // Colored outline (thin) to echo theme color (not part of mask)
-    const colorPath = document.createElementNS(SVG_NS, 'path');
-    colorPath.setAttribute('d', d);
-    colorPath.setAttribute('fill', 'none');
-    colorPath.setAttribute('stroke', themeQuoteColor());
-    colorPath.setAttribute('stroke-linecap', 'round');
-    colorPath.setAttribute('opacity', '0.65');
+  //   // Colored outline (thin) to echo theme color (not part of mask)
+  //   const colorPath = document.createElementNS(SVG_NS, 'path');
+  //   colorPath.setAttribute('d', d);
+  //   colorPath.setAttribute('fill', 'none');
+  //   colorPath.setAttribute('stroke', themeQuoteColor());
+  //   colorPath.setAttribute('stroke-linecap', 'round');
+  //   colorPath.setAttribute('opacity', '0.65');
 
-    // Group to rotate together
-    const gMask = document.createElementNS(SVG_NS, 'g');
-    gMask.setAttribute('transform-origin', '500 500');
-    gMask.appendChild(path);
+  //   // Group to rotate together
+  //   const gMask = document.createElementNS(SVG_NS, 'g');
+  //   gMask.setAttribute('transform-origin', '500 500');
+  //   gMask.appendChild(path);
 
-    const gColor = document.createElementNS(SVG_NS, 'g');
-    gColor.setAttribute('transform-origin', '500 500');
-    gColor.appendChild(colorPath);
+  //   const gColor = document.createElementNS(SVG_NS, 'g');
+  //   gColor.setAttribute('transform-origin', '500 500');
+  //   gColor.appendChild(colorPath);
 
-    svg.appendChild(defs);
-    svg.appendChild(img);
-    svg.appendChild(gMask);
-    svg.appendChild(gColor);
-    holder.appendChild(svg);
+  //   svg.appendChild(defs);
+  //   svg.appendChild(img);
+  //   svg.appendChild(gMask);
+  //   svg.appendChild(gColor);
+  //   holder.appendChild(svg);
 
-    // Animate: dash sweep + stroke growth + rotation
-    const ms = getTransitionMs();
+  //   // Animate: dash sweep + stroke growth + rotation
+  //   const ms = getTransitionMs();
 
-    // We need total length to make a sweep
-    requestAnimationFrame(() => {
-      const len = path.getTotalLength?.() || 3000;
-      // mask (white) spiral
-      path.style.strokeDasharray = String(len);
-      path.style.strokeDashoffset = String(len);
-      path.style.strokeWidth = '2';
+  //   // We need total length to make a sweep
+  //   requestAnimationFrame(() => {
+  //     const len = path.getTotalLength?.() || 3000;
+  //     // mask (white) spiral
+  //     path.style.strokeDasharray = String(len);
+  //     path.style.strokeDashoffset = String(len);
+  //     path.style.strokeWidth = '2';
 
-      // color spiral (thin outline)
-      colorPath.style.strokeDasharray = String(len);
-      colorPath.style.strokeDashoffset = String(len);
-      colorPath.style.strokeWidth = '1.2';
+  //     // color spiral (thin outline)
+  //     colorPath.style.strokeDasharray = String(len);
+  //     colorPath.style.strokeDashoffset = String(len);
+  //     colorPath.style.strokeWidth = '1.2';
 
-      // transitions
-      const trans = `stroke-dashoffset ${ms}ms ease, stroke-width ${ms}ms ease, opacity ${ms}ms ease`;
-      path.style.transition = trans;
-      colorPath.style.transition = trans;
-      gMask.style.transition = `transform ${ms}ms ease`;
-      gColor.style.transition = `transform ${ms}ms ease`;
+  //     // transitions
+  //     const trans = `stroke-dashoffset ${ms}ms ease, stroke-width ${ms}ms ease, opacity ${ms}ms ease`;
+  //     path.style.transition = trans;
+  //     colorPath.style.transition = trans;
+  //     gMask.style.transition = `transform ${ms}ms ease`;
+  //     gColor.style.transition = `transform ${ms}ms ease`;
 
-      // kick
-      // dashoffset  -> 0 (draws spiral)
-      // strokeWidth -> big (fills area by end)
-      const finalStroke = 900; // thick enough to cover
-      requestAnimationFrame(() => {
-        path.style.strokeDashoffset = '0';
-        colorPath.style.strokeDashoffset = '0';
-        path.style.strokeWidth = String(finalStroke);
-        colorPath.style.strokeWidth = '3';
-        colorPath.style.opacity = '0.15'; // fade the outline a bit by end
-        gMask.style.transform = 'rotate(360deg)';
-        gColor.style.transform = 'rotate(360deg)';
-      });
-    });
+  //     // kick
+  //     // dashoffset  -> 0 (draws spiral)
+  //     // strokeWidth -> big (fills area by end)
+  //     const finalStroke = 900; // thick enough to cover
+  //     requestAnimationFrame(() => {
+  //       path.style.strokeDashoffset = '0';
+  //       colorPath.style.strokeDashoffset = '0';
+  //       path.style.strokeWidth = String(finalStroke);
+  //       colorPath.style.strokeWidth = '3';
+  //       colorPath.style.opacity = '0.15'; // fade the outline a bit by end
+  //       gMask.style.transform = 'rotate(360deg)';
+  //       gColor.style.transform = 'rotate(360deg)';
+  //     });
+  //   });
 
-    setTimeout(() => {
-      baseImg.src = nextSrc;
-      holder.remove();
-      done?.();
-    }, ms + 40);
+  //   setTimeout(() => {
+  //     baseImg.src = nextSrc;
+  //     holder.remove();
+  //     done?.();
+  //   }, ms + 40);
+  // }
+
+// --- Spiral (SVG mask sweep; thicker themed outline + no visible white stroke) ---
+function transitionSpiralSVG(root, baseImg, nextSrc, done) {
+  const wrap = ensureLayerWrap(root, baseImg);
+
+  // Holder
+  const holder = document.createElement('div');
+  holder.className = 'gp-spiral-svg-holder';
+  wrap.appendChild(holder);
+
+  // SVG (fixed 1000x1000 space for stable geometry)
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const XLINK_NS = 'http://www.w3.org/1999/xlink';
+
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 1000 1000');
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  svg.classList.add('gp-spiral-svg');
+
+  // defs + mask (keep the white stroke ONLY inside this mask)
+  const defs = document.createElementNS(SVG_NS, 'defs');
+  const mask = document.createElementNS(SVG_NS, 'mask');
+  const maskId = 'gpMask_' + Math.random().toString(36).slice(2);
+  mask.setAttribute('id', maskId);
+  mask.setAttribute('maskUnits', 'userSpaceOnUse');
+
+  const maskRect = document.createElementNS(SVG_NS, 'rect');
+  maskRect.setAttribute('x', '0');
+  maskRect.setAttribute('y', '0');
+  maskRect.setAttribute('width', '1000');
+  maskRect.setAttribute('height', '1000');
+  maskRect.setAttribute('fill', 'black');
+
+  // Build an Archimedean spiral path in user-space
+  const cX = 500, cY = 500;
+  const turns = 4.25;
+  const a = 0;
+  const b = 14;      // spacing between arms (bigger => wider spacing)
+  const step = 0.08; // radians step
+
+  const maskPath = document.createElementNS(SVG_NS, 'path');
+  maskPath.setAttribute('fill', 'none');
+  maskPath.setAttribute('stroke', 'white'); // white = reveal in mask
+  maskPath.setAttribute('stroke-linecap', 'round');
+
+  let d = '';
+  let started = false;
+  for (let t = 0; t <= Math.PI * 2 * turns; t += step) {
+    const r = a + b * t;
+    const x = cX + r * Math.cos(t);
+    const y = cY + r * Math.sin(t);
+    d += (started ? ' L ' : 'M ') + x.toFixed(2) + ' ' + y.toFixed(2);
+    started = true;
   }
+  maskPath.setAttribute('d', d);
+
+  // Assemble defs/mask
+  mask.appendChild(maskRect);
+  mask.appendChild(maskPath);
+  defs.appendChild(mask);
+  svg.appendChild(defs);
+
+  // Next image, revealed by the mask
+  const img = document.createElementNS(SVG_NS, 'image');
+  img.setAttributeNS(XLINK_NS, 'href', nextSrc);
+  img.setAttribute('x', '0');
+  img.setAttribute('y', '0');
+  img.setAttribute('width', '1000');
+  img.setAttribute('height', '1000');
+  img.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  img.setAttribute('mask', `url(#${maskId})`);
+
+  // Themed spiral outline (visible) — separate path (clone the geometry)
+  const outlinePath = document.createElementNS(SVG_NS, 'path');
+  outlinePath.setAttribute('d', d);
+  outlinePath.setAttribute('fill', 'none');
+  outlinePath.setAttribute('stroke', themeQuoteColor());  // theme color
+  outlinePath.setAttribute('stroke-linecap', 'round');
+  outlinePath.setAttribute('opacity', '0.75');
+
+  // Spin group (rotate image+mask for that subtle full 360° twist)
+  const spin = document.createElementNS(SVG_NS, 'g');
+  spin.setAttribute('transform-origin', '500 500');
+  spin.appendChild(img);
+
+  // Separate group for outline so it rotates in sync
+  const spinOutline = document.createElementNS(SVG_NS, 'g');
+  spinOutline.setAttribute('transform-origin', '500 500');
+  spinOutline.appendChild(outlinePath);
+
+  svg.appendChild(spin);
+  svg.appendChild(spinOutline);
+  holder.appendChild(svg);
+
+  // Animate dash sweep + stroke growth + rotation
+  const ms = getTransitionMs();
+
+  requestAnimationFrame(() => {
+    const len = (maskPath.getTotalLength?.() || 3000);
+
+    // Prepare sweeping on both paths
+    maskPath.style.strokeDasharray = String(len);
+    maskPath.style.strokeDashoffset = String(len);
+    // Start thin, end very thick so it "floods" into full reveal
+    maskPath.style.strokeWidth = '2';
+
+    outlinePath.style.strokeDasharray = String(len);
+    outlinePath.style.strokeDashoffset = String(len);
+    // Thicker themed outline (start 4 → end 12)
+    outlinePath.style.strokeWidth = '4';
+
+    const pathTrans = `stroke-dashoffset ${ms}ms ease, stroke-width ${ms}ms ease, opacity ${ms}ms ease`;
+    maskPath.style.transition = pathTrans;
+    outlinePath.style.transition = pathTrans;
+
+    spin.style.transition = `transform ${ms}ms ease`;
+    spinOutline.style.transition = `transform ${ms}ms ease, opacity ${ms}ms ease`;
+
+    // Kick off the animation on the next frame
+    requestAnimationFrame(() => {
+      maskPath.style.strokeDashoffset = '0';
+      maskPath.style.strokeWidth = '900';   // mask grows thick enough to reveal fully
+
+      outlinePath.style.strokeDashoffset = '0';
+      outlinePath.style.strokeWidth = '12'; // thicker themed line on top
+      outlinePath.style.opacity = '0.3';    // fade a bit by the end
+
+      // Full 360° so we end aligned
+      spin.style.transform = 'rotate(360deg)';
+      spinOutline.style.transform = 'rotate(360deg)';
+    });
+  });
+
+  // Complete
+  setTimeout(() => {
+    baseImg.src = nextSrc;
+    holder.remove();
+    done?.();
+  }, ms + 40);
+}
+
+
 
 })();
