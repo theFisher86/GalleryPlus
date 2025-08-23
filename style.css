@@ -1,467 +1,184 @@
-/* ====== GalleryPlus layout ====== */
+/* GalleryPlus — final styling
+   - Left controls row + button glow
+   - Theme-aware shadows
+   - Layer/transition scaffolding
+   - Slideshow slider hover glow
+   - Spiral transition mask
+*/
 
-/* Root we enhance (the gallery modal or container) */
-.gp-root {
-  display: grid;
-  grid-template-rows: auto 1fr auto; /* header / scroll content / sticky footer */
-  gap: 8px;
-  min-height: min(90vh, 100%);
-  max-height: 90vh; /* keep within viewport */
-}
-
-/* Header for image viewer popups */
-.gp-header{
-  padding:10px 14px;
-  border-radius:10px;
-  font-weight:700;
-  text-align:center;
-  background:linear-gradient(90deg,#6d28d9,#9333ea);
-  color:#fff;
-}
-
-/* === GalleryPlus: drawer + NGY2 layout (safe with inline height) === */
-#gallery {
+/* ========== Controls (left of top bar) ========== */
+.gp-controls-left {
   display: flex;
-  flex-direction: column;
-  resize:both;
-  overflow:auto;
-}
-
-/* Fill the remaining drawer space with the gallery container */
-#gallery #dragGallery {
-  flex: 1 1 auto !important;
-  min-height: 0 !important;           /* allow child to size/scroll */
-  overflow: hidden !important;
-  height: 100%;
-}
-
-/* NGY2 root inside the container becomes the scroller */
-#gallery .nGY2Gallery {
-  position: relative;
-  height: 100% !important;
-  overflow: auto !important;           /* scroll thumbnails here */
-}
-
-/* Let NGY2 compute its own sub-height (fixes “images not showing”) */
-#gallery .nGY2GallerySub {
-  min-height: 0 !important;
-}
-
-/* Keep the pagination bar visible at the bottom of the scroller */
-#gallery .nGY2GalleryBottom {
-  position: sticky !important;
-  bottom: 0;
-  padding: 6px 0;
-  background: var(--SmartThemeBlurTintColor);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 0 6px; /* small breathing room */
+  user-select: none;
   z-index: 1;
 }
 
-/* Hide the (temporary) GP header in the image viewer */
-.gp-root .gp-header { display: none !important; }
-
-/* Small overlay controls for the image viewer */
-.gp-controls {
-  position: absolute; z-index: 3;
-  top: 8px; left: 10px; display: flex; gap: 6px;
-}
 .gp-btn {
-  padding: 4px 8px; border-radius: 8px;
-  border: 1px solid var(--SmartThemeBorderColor);
-  background: var(--SmartThemeBodyColor); opacity: .9; line-height: 1;
-  cursor: pointer; user-select: none;
   appearance: none;
-  background: #1b1b1b;
-  color: #ddd;
-  border-radius: 6px;
-  font-size: 12px;
-}
-
-.gp-btn:hover { opacity: 1; }
-.gp-zoom-img { will-change: transform; transform-origin: center center; }
-
-
-/* Scrollable content area that holds the grid */
-.gp-scroll {
-  position: relative;
-  overflow: auto;
-  padding: 6px;
-  border-radius: 8px;
-  background: var(--Surface2, #101010);
-  min-height: 0; /* important for proper overflow in grid containers */
-}
-
-/* Stabilized grid: fixed aspect boxes, images fit without moving pagination */
-.gp-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 10px;
-  align-items: stretch;
-  contain: content;
-}
-
-.gp-gallery.gp-dense { grid-auto-flow: dense; }
-
-.gp-card {
-  position: relative;
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--Surface2, #111);
-  aspect-ratio: 1 / 1;
-  display: grid;
-  place-items: center;
-  contain: content paint layout size;
-}
-
-.gp-card img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-  will-change: transform;
-}
-
-.gp-card .gp-caption {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-  background: color-mix(in oklab, black 60%, transparent);
-  color: #eee;
-  font-size: 12px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  pointer-events: none;
-}
-
-.gp-card .gp-actions {
-  position: absolute;
-  right: 6px;
-  top: 6px;
-  display: flex;
-  gap: 6px;
-}
-
-.gp-btn:hover { opacity: 1; }
-
-/* Smooth transforms while zooming */
-.gp-zoom-img { will-change: transform; transform-origin: center center; }
-
-/* Anchored footer bar INSIDE the modal, not under the last row of images */
-.gp-footer {
-  position: sticky;  /* sticky within gp-root’s scroll context */
-  bottom: 0;
-  z-index: 2;
-  background: var(--Surface1, rgba(0,0,0,.7));
-  backdrop-filter: blur(6px);
-  padding: 8px;
-  border-top: 1px solid #333;
-  border-radius: 8px;
-}
-
-.gp-pagination-bar {
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-/* Preview modal */
-.gp-preview {
-  --gp-open-height: 700px;
-  display: grid;
-  place-items: center;
-  width: min(calc(var(--gp-open-height) * 1.77), 95vw);
-  height: min(var(--gp-open-height), 90vh);
-  overflow: hidden;
-  background: #0b0b0b;
-  border-radius: 10px;
-}
-
-.gp-preview img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  will-change: transform;
-  transition: transform 220ms ease;
-}
-
-.gp-preview[data-zooming="1"] img {
-  transition: none;
-}
-
-/* Hide GP header block in the image viewer for now */
-.gp-root .gp-header { display: none !important; }
-
-/* Controls that sit top-left over the image viewer */
-.gp-controls {
-  position: absolute; z-index: 3;
-  top: 8px; left: 10px; display: flex; gap: 6px;
-}
-
-/* ===== GalleryPlus: external viewer controls (left of the bar) ===== */
-.galleryImageDraggable {
-    /* most draggable panels already have absolute positioning; this is a safe default */
-    position: absolute;
-}
-
-/* Nudge the bar’s content to the right so it doesn’t sit under the external controls */
-.galleryImageDraggable .panelControlBar.gp-has-external-controls {
-    padding-left: 56px; /* space for two small buttons + breathing room */
-}
-
-/* Controls: placed at the top-left of the viewer, outside the bar */
-.galleryImageDraggable .gp-controls {
-    position: absolute;
-    top: 6px;
-    left: 6px;
-    display: flex;
-    gap: 8px;
-    z-index: 5; /* above the bar & image */
-    pointer-events: auto;
-}
-
-/* Button base */
-.galleryImageDraggable .gp-btn {
-    font-size: 18px;
-    line-height: 1;
-    padding: 4px 6px;
-    border: none;
-    border-radius: 10px;
-    cursor: pointer;
-    background: rgba(0, 0, 0, 0.25);
-    color: var(--SmartThemeBodyColor, #fff);
-    backdrop-filter: blur(2px);
-    transition: box-shadow .2s ease, transform .1s ease, background .2s ease, text-shadow .2s ease, filter .2s ease;
-}
-
-/* Hover glow */
-.galleryImageDraggable .gp-btn:hover {
-    background: rgba(0, 0, 0, 0.35);
-    transform: translateY(-1px);
-    /* neon-ish glow; uses theme accent if present */
-    box-shadow:
-        0 0 8px rgba(0, 230, 255, 0.9),
-        0 0 16px rgba(0, 230, 255, 0.6);
-    text-shadow:
-        0 0 6px rgba(0, 230, 255, 0.9),
-        0 0 12px rgba(0, 230, 255, 0.75);
-    filter: drop-shadow(0 0 4px rgba(0, 230, 255, 0.8));
-}
-
-/* Optional: a little active feedback */
-.galleryImageDraggable .gp-btn:active {
-    transform: translateY(0);
-}
-
-/* === Resizing: ensure windows can be resized === */
-#gallery,
-.galleryImageDraggable {
-  resize: both;
-  overflow: auto; /* required for CSS resize handles to appear */
-}
-
-/* === Use Quote Text theme color for glows (with safe fallback) === */
-:root {
-  /* If your theme already defines this, great; fallback keeps it bright but not blinding */
-  --GP-GlowColor: var(--SmartThemeQuoteTextColor, #00e6ff);
-}
-
-/* External controls (already present, just updating hover glow color) */
-.galleryImageDraggable .gp-btn:hover {
-  background: rgba(0, 0, 0, 0.35);
-  transform: translateY(-1px);
-  box-shadow:
-    0 0 8px var(--GP-GlowColor),
-    0 0 16px color-mix(in srgb, var(--GP-GlowColor) 65%, transparent);
-  text-shadow:
-    0 0 6px var(--GP-GlowColor),
-    0 0 12px color-mix(in srgb, var(--GP-GlowColor) 65%, transparent);
-  filter: drop-shadow(0 0 4px var(--GP-GlowColor));
-}
-
-/* Window glow under Gallery + Viewers */
-#gallery.draggable,
-.galleryImageDraggable.draggable {
-  /* soft base shadow + themed glow */
-  box-shadow:
-    0 10px 24px rgba(0,0,0,.35),
-    0 0 16px color-mix(in srgb, var(--GP-GlowColor) 35%, transparent);
-}
-
-/* Slideshow controls next to ⏯️ (hidden unless playing) */
-.galleryImageDraggable .gp-slide-controls {
-  display: none;
-  align-items: center;
-  gap: 6px;
-}
-.galleryImageDraggable.gp-slideshow-on .gp-slide-controls {
-  display: flex;
-}
-
-/* Range slider styling + theme accent */
-.galleryImageDraggable .gp-delay {
-  width: 110px;
-  accent-color: var(--GP-GlowColor);
-}
-.galleryImageDraggable .gp-slide-label {
-  font-size: 12px;
-  opacity: 0.85;
-}
-
-/* ===== GalleryPlus: theme glow + viewer fade overlay ===== */
-
-/* Use SillyTavern's Quote color for glows */
-#gallery.draggable,
-.galleryImageDraggable.draggable,
-#gallery.draggable .galleryImageDraggable.draggable {
-  /* soft outer glow */
-  box-shadow: 0 0 24px 2px var(--SmartThemeQuoteColor, rgba(122,162,247,0.35));
-}
-
-/* Left control icons: themed glow on hover */
-.gp-leftControls .gp-icon:hover {
-  filter: drop-shadow(0 0 8px var(--SmartThemeQuoteColor, rgba(122,162,247,0.9)));
-  transform: translateY(-1px);
-  transition: filter 120ms ease, transform 120ms ease;
-}
-
-/* Cross-fade overlay lives inside a small wrapper around the <img>.
-   Only overlay needs CSS; we leave container positioning to GP/MovingUI. */
-.gp-fade-overlay {
-  will-change: opacity;
-  pointer-events: none; /* never block dragging/resizing */
-}
-/* === GalleryPlus: Dissolve + Themed Glow (final) === */
-
-/* Use SillyTavern's Quote color everywhere we glow */
-:root {
-  --GP-DissolveMs: 350ms;
-}
-
-/* The glow you already liked; these use the theme var directly */
-#gallery.draggable,
-#gallery.draggable .galleryImageDraggable.draggable {
-  /* your shadow for gallery and viewer; pick one or both as you prefer */
-  box-shadow: 0 0 16px var(--SmartThemeQuoteColor);
-}
-
-/* Hover glow for the viewer action icons */
-.gp-icon {
-  transition: filter 120ms ease;
-}
-.gp-icon:hover {
-  /* smooth glow using the theme quote color */
-  filter: drop-shadow(0 0 6px var(--SmartThemeQuoteColor));
-}
-
-/* Cross-fade ghost image dropped on top of the real <img> */
-.galleryImageDraggable .gp-fader {
-  position: absolute !important;
-  /* we size & position this inline from JS to match the real <img> */
-  opacity: 1;
-  object-fit: contain;
-  pointer-events: none;
-  transition: opacity var(--GP-DissolveMs) ease-in-out;
-  z-index: 2; /* sits over the real image but below panel controls */
-}
-
-/* === GalleryPlus: Transitions UI + Themed glows === */
-:root {
-  --GP-TransMs: 450ms;     /* shared duration for push/spiral */
-  --GP-DissolveMs: 350ms;  /* your crossfade ghost */
-}
-
-/* Button/icon hover glow should use Underline color now */
-.gp-icon {
-  transition: filter 120ms ease;
-}
-.gp-icon:hover {
-  filter: drop-shadow(0 0 6px var(--SmartThemeUnderlineColor));
-}
-
-/* Speed slider glow on hover/active */
-.gp-speed-wrap input[type="range"].gp-speed-range {
+  border: none;
   outline: none;
-  width: 40%;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: box-shadow 160ms ease, transform 120ms ease;
+  color: inherit;
 }
-.gp-speed-wrap input[type="range"].gp-speed-range:hover,
-.gp-speed-wrap input[type="range"].gp-speed-range:focus {
-  box-shadow: 0 0 8px var(--SmartThemeUnderlineColor);
+.gp-btn:hover {
+  /* theme underline glow */
+  box-shadow: 0 0 12px var(--SmartThemeUnderlineColor, #7aa2f7);
+  transform: translateY(-1px);
+}
+.gp-btn.active {
+  box-shadow: 0 0 0 2px var(--SmartThemeUnderlineColor, #7aa2f7) inset;
 }
 
-/* Keep your themed window glows (you already added these) */
+.gp-speed-wrap {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+}
+.gp-speed {
+  width: 110px;
+  accent-color: var(--SmartThemeUnderlineColor, #7aa2f7);
+  transition: box-shadow 120ms ease;
+}
+.gp-speed:hover {
+  box-shadow: 0 0 12px var(--SmartThemeUnderlineColor, #7aa2f7);
+}
+.gp-speed.gp-warn {
+  accent-color: #ff5a5f;
+  box-shadow: 0 0 12px rgba(255, 90, 95, 0.8);
+}
+
+.gp-transition {
+  width: 44px; /* nice and tight; emoji only */
+  text-align: center;
+  padding: 2px 4px;
+  border-radius: 6px;
+  border: 1px solid var(--SmartThemeUnderlineColor, #7aa2f7);
+  background: transparent;
+  color: inherit;
+}
+
+/* ========== Themed window glow ========== */
 #gallery.draggable,
-#gallery.draggable .galleryImageDraggable.draggable {
-  box-shadow: 0 0 16px var(--SmartThemeQuoteColor);
+#gallery.draggable .galleryImageDraggable.draggable,
+.galleryImageDraggable.draggable {
+  /* window drop shadow glow using QuoteColor */
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.3),
+    0 0 20px 2px var(--SmartThemeQuoteColor, #7aa2f7);
 }
 
-/* Cross-fade ghost (already working) */
-.galleryImageDraggable .gp-fader {
-  position: absolute !important;
-  opacity: 1;
-  object-fit: contain;
-  pointer-events: none;
-  transition: opacity var(--GP-DissolveMs) ease-in-out;
-  z-index: 2;
-}
-
-/* Spiral overlay */
-.galleryImageDraggable .gp-spiral {
-  position: absolute !important;
-  pointer-events: none;
-  z-index: 3;
-  opacity: 0.9;
-  transform: translate(-50%, -50%) scale(0.65) rotate(0deg);
-  left: 50%;
-  top: 50%;
-  width: 80%;
-  height: 80%;
-  animation: gp-spiral-anim var(--GP-TransMs) ease-out forwards;
-}
-.galleryImageDraggable .gp-spiral svg {
+/* ========== Layer scaffolding for transitions ========== */
+.gp-layer-wrap {
+  position: relative;
   width: 100%;
   height: 100%;
-  display: block;
 }
-.galleryImageDraggable .gp-spiral path {
-  fill: none;
-  stroke: var(--SmartThemeQuoteColor); /* 1px themed outline */
-  stroke-width: 1px;
-  vector-effect: non-scaling-stroke;
-}
-
-@keyframes gp-spiral-anim {
-  0%   { opacity: 0.9; transform: translate(-50%, -50%) scale(0.65) rotate(0deg); }
-  100% { opacity: 0.0; transform: translate(-50%, -50%) scale(1.35) rotate(540deg); }
-}
-
-/* Push transition ghosts */
-.galleryImageDraggable .gp-push-ghost {
-  position: absolute !important;
+.gp-layer-wrap > img.gp-layer {
+  position: absolute;
+  inset: 0;
   object-fit: contain;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-  z-index: 2;
-  will-change: transform, opacity;
-  transition: transform var(--GP-TransMs) ease-in-out, opacity var(--GP-TransMs) ease-in-out;
+}
+.gp-layer.base {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.gp-layer.next {
+  z-index: 1;
 }
 
-/* Compact transition select next to the speed slider */
-.gp-trans-select {
-  font-size: 14px;
-  line-height: 1;
-  width: 3.2em; /* just enough for the emoji */
-  height: 22px;
-  margin-left: 6px;
-  border-radius: 6px;
-  border: 1px solid var(--border-color, #444);
-  background: var(--SmartThemeBlurTintColor, #222);
-  color: var(--SmartThemeTextColor, #ddd);
-}
-.gp-trans-select:hover,
-.gp-trans-select:focus {
-  box-shadow: 0 0 8px var(--SmartThemeUnderlineColor);
+/* Small saved pulse */
+.gp-saved-pulse {
+  box-shadow: 0 0 0 2px var(--SmartThemeUnderlineColor, #7aa2f7) inset !important;
+  transition: box-shadow 240ms ease;
 }
 
-/* shorten the slideshow slider */
-.gp-controls-left input[type="range"] {
-  width: 35% !important;
+/* ========== Spiral transition ========== */
+/* Holder contains the next image and a mask layer */
+.gp-spiral-holder {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 2; /* above base image */
+  --gp-spiral-ms: 1200ms;
+  --gp-spiral-color: var(--SmartThemeQuoteColor, #7aa2f7);
+  --gp-spiral-width: 0.18; /* thickness factor (0..1) */
+  --gp-spiral-rot: 1turn;  /* final rotation */
+}
+
+/* Next image sits under the spiral mask layer */
+.gp-spiral-holder > img.gp-layer.next {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 0;
+}
+
+/* Spiral mask overlay (uses conic-gradient with transparency bands)
+   We also rotate it to create motion and keep alignment at end. */
+.gp-spiral-mask {
+  position: absolute;
+  inset: -5%;
+  z-index: 1;
+  pointer-events: none;
+  /* The spiral look is simulated via conic banding + rotation */
+  --c: var(--gp-spiral-color);
+  --w: var(--gp-spiral-width);
+  background:
+    conic-gradient(
+      from 0deg,
+      rgba(0,0,0,0) 0%,
+      rgba(0,0,0,0) calc((1 - var(--w)) * 100%),
+      var(--c) calc((1 - var(--w)) * 100% + 0.1%),
+      var(--c) 100%
+    );
+  mix-blend-mode: screen; /* nice luminous feel over next image */
+  opacity: 0.0;
+  transform: rotate(0turn) scale(0.8);
+}
+
+/* Play animation */
+.gp-spiral-holder.play .gp-spiral-mask {
+  animation:
+    gp-spiral-fade var(--gp-spiral-ms) ease forwards,
+    gp-spiral-rot var(--gp-spiral-ms) ease forwards;
+}
+
+/* Fade the band in then subtly out as it expands */
+@keyframes gp-spiral-fade {
+  0% { opacity: 0.0; transform: rotate(0turn) scale(0.8); }
+  30% { opacity: 0.85; }
+  70% { opacity: 0.55; }
+  100% { opacity: 0.0; transform: rotate(var(--gp-spiral-rot)) scale(1.25); }
+}
+
+/* Rotation is separated to guarantee full 360° by the end */
+@keyframes gp-spiral-rot {
+  0% { transform: rotate(0turn) scale(0.8); }
+  100% { transform: rotate(var(--gp-spiral-rot)) scale(1.25); }
+}
+
+/* Ensure gallery thumbnails and viewer images never get cropped (contain) */
+#gallery img,
+.galleryImageDraggable img {
+  object-fit: contain !important;
+}
+
+/* Ensure our left controls never block dragging on the grip */
+.gp-controls-left + .panelControlBar .drag-grabber {
+  pointer-events: auto;
 }
