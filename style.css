@@ -326,8 +326,40 @@
 
 /* Cross-fade overlay lives inside a small wrapper around the <img>.
    Only overlay needs CSS; we leave container positioning to GP/MovingUI. */
-.gp-imgwrap {}
 .gp-fade-overlay {
   will-change: opacity;
   pointer-events: none; /* never block dragging/resizing */
+}
+/* === GalleryPlus: Dissolve + Themed Glow (final) === */
+
+/* Use SillyTavern's Quote color everywhere we glow */
+:root {
+  --GP-DissolveMs: 350ms;
+}
+
+/* The glow you already liked; these use the theme var directly */
+#gallery.draggable,
+#gallery.draggable .galleryImageDraggable.draggable {
+  /* your shadow for gallery and viewer; pick one or both as you prefer */
+  box-shadow: 0 0 16px var(--SmartThemeQuoteColor);
+}
+
+/* Hover glow for the viewer action icons */
+.gp-icon {
+  transition: filter 120ms ease;
+}
+.gp-icon:hover {
+  /* smooth glow using the theme quote color */
+  filter: drop-shadow(0 0 6px var(--SmartThemeQuoteColor));
+}
+
+/* Cross-fade ghost image dropped on top of the real <img> */
+.galleryImageDraggable .gp-fader {
+  position: absolute !important;
+  /* we size & position this inline from JS to match the real <img> */
+  opacity: 1;
+  object-fit: contain;
+  pointer-events: none;
+  transition: opacity var(--GP-DissolveMs) ease-in-out;
+  z-index: 2; /* sits over the real image but below panel controls */
 }

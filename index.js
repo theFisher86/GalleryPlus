@@ -79,6 +79,76 @@
     document.head.appendChild(st);
   }
 
+  // === GP: Dissolve Observer (final) =========================================
+// Watches for <img> src swaps inside .galleryImageDraggable and cross-fades
+(function () {
+  if (window.gpDissolveObsInstalled) return;
+  window.gpDissolveObsInstalled = true;
+
+  function isViewerImg(node) {
+    return node && node.tagName === 'IMG' && node.closest('.galleryImageDraggable');
+  }
+
+  function dropGhostFade(img, oldSrc) {
+    if (!oldSrc || oldSrc === img.src) return;
+
+    const viewer = img.closest('.galleryImageDraggable');
+    if (!viewer) return;
+
+    // Compute image box so the ghost only covers the image area,
+    // not the panel controls.
+    const r = img.getBoundingClientRect();
+    const rv = viewer.getBoundingClientRect();
+
+    const ghost = document.createElement('img');
+    ghost.className = 'gp-fader';
+    ghost.src = oldSrc;
+
+    // Place the ghost over the exact image box inside the viewer
+    ghost.style.left = (r.left - rv.left) + 'px';
+    ghost.style.top = (r.top - rv.top) + 'px';
+    ghost.style.width = r.width + 'px';
+    ghost.style.height = r.height + 'px';
+
+    viewer.appendChild(ghost);
+
+    // Kick off the fade
+    requestAnimationFrame(() => {
+      ghost.style.opacity = '0';
+      ghost.addEventListener('transitionend', () => ghost.remove(), { once: true });
+    });
+  }
+
+  function onMutations(list) {
+    for (const m of list) {
+      if (m.type === 'attributes' && m.attributeName === 'src' && isViewerImg(m.target)) {
+        dropGhostFade(m.target, m.oldValue);
+      }
+    }
+  }
+
+  function installObserver() {
+    if (window.gpDissolveObs) return;
+    const obs = new MutationObserver(onMutations);
+    // Watch the whole document for <img src> changes
+    obs.observe(document.body, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['src'],
+      attributeOldValue: true,
+    });
+    window.gpDissolveObs = obs;
+    console.log('[GalleryPlus] Dissolve observer installed');
+  }
+
+  // Make sure it runs once, regardless of load timing
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', installObserver, { once: true });
+  } else {
+    installObserver();
+  }
+})();
+
   // ---------- gallery title + resize unlock (single-shot, drag-safe) ----------
   function retitleGallery() {
     const span = document.querySelector('#gallery .dragTitle span');
