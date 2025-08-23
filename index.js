@@ -1,17 +1,16 @@
 // GalleryPlus — SillyTavern extension
-// Full index.js drop-in
+// index.js — drag-safe + no-crop wheel-zoom + slideshow, etc.
 
 (() => {
   const EXT = 'GalleryPlus';
 
-  // ------------- ST helpers -------------
-  function ctx() { return window.SillyTavern?.getContext?.() || {}; }
+  // ---------- helpers ----------
+  const ctx = () => window.SillyTavern?.getContext?.() || {};
   function settings() {
     const c = ctx();
     if (!c.extensionSettings) c.extensionSettings = {};
     if (!c.extensionSettings[EXT]) c.extensionSettings[EXT] = {};
     const s = c.extensionSettings[EXT];
-    // sensible defaults
     if (s.hoverZoomScale == null) s.hoverZoomScale = 1.08;
     if (s.hoverZoom == null) s.hoverZoom = true;
     if (s.slideshowMs == null) s.slideshowMs = 3000;
@@ -20,29 +19,21 @@
     if (s.webpOnly == null) s.webpOnly = false;
     return s;
   }
-  function save() {
+  const save = () =>
     (window.saveSettingsDebounced || window.SillyTavern?.saveSettingsDebounced || (()=>{})).call(null);
-  }
-  function ready(fn) {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once:true });
-    else fn();
-  }
+  const ready = (fn) =>
+    (document.readyState === 'loading'
+      ? document.addEventListener('DOMContentLoaded', fn, { once: true })
+      : fn());
+  const log = (...a) => console.log(`[${EXT}]`, ...a);
 
-  // ------------- Diagnostics -------------
-  function log(...a) { console.log(`[${EXT}]`, ...a); }
-
-  // ------------- Theme-aware CSS (once) -------------
+  // ---------- minimal CSS (no #gallery inset overrides) ----------
   function injectBaseCSS() {
     if (document.getElementById('gp-base-css')) return;
     const st = document.createElement('style');
     st.id = 'gp-base-css';
     st.textContent = `
-/* Ensure gallery can be resized even if inline anchors appear */
-#gallery { right:auto !important; bottom:auto !important; inset:auto !important; }
-/* If ST adds .no-scrollbar, keep resize functional */
-#gallery.no-scrollbar { overflow:auto !important; }
-
-/* Controls container (left of window toolbar) */
+/* Controls block, left of the toolbar */
 .galleryImageDraggable .gp-controls,
 #gallery .gp-controls {
   position: absolute;
@@ -71,32 +62,41 @@
 }
 
 /* Slideshow controls */
-.gp-slide-controls { display: none; gap:8px; align-items: center; }
+.gp-slide-controls { display: none; gap:8px; align-items:center; }
 .gp-slideshow-on .gp-slide-controls { display: inline-flex; }
 .gp-delay { width: 120px; }
 .gp-slide-label { font-size: 12px; opacity: .85; }
 
-/* Dissolve transition on images */
+/* Dissolve on image swap */
 .galleryImageDraggable img { transition: opacity 220ms ease; }
 
-/* Soft theme glow around windows */
+/* Theme glow for windows */
 #gallery, .galleryImageDraggable {
-  box-shadow: 0 0 0 rgba(0,0,0,0), 0 8px 32px -8px rgba(0,0,0,.45),
+  box-shadow: 0 8px 32px -8px rgba(0,0,0,.45),
               0 0 12px -2px var(--SmartThemeQuoteTextColor, rgba(160,200,255,.35));
 }
     `;
     document.head.appendChild(st);
   }
 
-  // ------------- Gallery Resize guard -------------
-  function unlockGalleryResize() {
+  // ---------- gallery title + resize unlock (single-shot, drag-safe) ----------
+  function retitleGallery() {
+    const span = document.querySelector('#gallery .dragTitle span');
+    if (span && span.textContent !== 'Image GalleryPlus') {
+      span.textContent = 'Image GalleryPlus';
+    }
+  }
+  function unlockGalleryResizeOnce() {
     const g = document.getElementById('gallery');
-    if (!g) return;
-    // Clear anchors once; CSS above keeps them cleared henceforth
+    if (!g || g.__gpResizeUnlocked) return;
+    g.__gpResizeUnlocked = true;
+
+    // Clear bottom/right/inset ONCE so width/height matter for resize.
+    // Do NOT force them via CSS; let MovingUI handle drag positioning.
     g.style.right = '';
     g.style.bottom = '';
     g.style.inset = '';
-    // Ensure width/height are explicit or resize has nothing to change
+
     const r = g.getBoundingClientRect();
     if (!g.style.width)  g.style.width  = r.width  + 'px';
     if (!g.style.height) g.style.height = r.height + 'px';
@@ -104,15 +104,20 @@
     g.style.overflow = 'auto';
   }
 
-  // ------------- Rename Gallery title -------------
-  function retitleGallery() {
-    const span = document.querySelector('#gallery .dragTitle span');
-    if (span && span.textContent !== 'Image GalleryPlus') {
-      span.textContent = 'Image GalleryPlus';
-    }
+  // ---------- gallery detection ----------
+  function observeGallery() {
+    const init = () => {
+      const g = document.getElementById('gallery');
+      if (!g) return;
+      retitleGallery();
+      unlockGalleryResizeOnce();
+    };
+    init();
+    const mo = new MutationObserver(init);
+    mo.observe(document.body, { childList: true, subtree: true });
   }
 
-  // ------------- NanoGallery helpers -------------
+  // ---------- thumbnail helpers ----------
   function galleryThumbs() {
     const nodes = document.querySelectorAll('#dragGallery .nGY2GThumbnailImg');
     return Array.from(nodes).map(n => n.getAttribute('src') || n.src).filter(Boolean);
@@ -120,7 +125,7 @@
   const baseName = (p='') => p.split('/').pop();
   const preload = (src) => { const i = new Image(); i.src = src; return i; };
 
-  // ------------- Per-viewer state -------------
+  // ---------- per-viewer state ----------
   const VIEW_STATE = new WeakMap();
   function state(root) {
     let st = VIEW_STATE.get(root);
@@ -131,28 +136,25 @@
     return st;
   }
 
-  // ------------- Controls (left of toolbar) -------------
+  // ---------- controls ----------
   function ensureControls(root) {
     let ctrls = root.querySelector(':scope > .gp-controls');
     if (!ctrls) {
       ctrls = document.createElement('div');
       ctrls.className = 'gp-controls';
-      // Put it before the toolbar so it's visually left of it
-      const first = root.firstChild;
-      root.insertBefore(ctrls, first);
+      root.insertBefore(ctrls, root.firstChild); // left of the toolbar
     }
     return ctrls;
   }
 
-  // ------------- Hover-zoom (inverse pan micro-zoom) -------------
+  // ---------- hover-zoom (inverse, micro) ----------
   function attachHoverZoom(root, img) {
     const s = state(root);
+    const scale = settings().hoverZoomScale || 1.08;
     const onMove = (e) => {
       const rect = img.getBoundingClientRect();
       const cx = (e.clientX - rect.left) / rect.width - 0.5;
       const cy = (e.clientY - rect.top) / rect.height - 0.5;
-      const scale = settings().hoverZoomScale || 1.08;
-      // inverse motion (small translate)
       const tx = (-cx * 16).toFixed(2);
       const ty = (-cy * 16).toFixed(2);
       img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
@@ -160,7 +162,6 @@
     const onLeave = () => { img.style.transform = 'none'; };
     root.addEventListener('mousemove', onMove);
     root.addEventListener('mouseleave', onLeave);
-    // store to clean up
     s.hoverHandlers = { onMove, onLeave };
   }
   function detachHoverZoom(root, img) {
@@ -173,17 +174,56 @@
     img.style.transform = 'none';
   }
 
-  // ------------- Wheel zoom (when hover-zoom is OFF) -------------
+  // ---------- wheel zoom (layout-based, no cropping) ----------
+  function fitScale(root, img) {
+    const nW = img.naturalWidth || img.width || 1;
+    const nH = img.naturalHeight || img.height || 1;
+    const cw = Math.max(1, root.clientWidth);
+    const ch = Math.max(1, root.clientHeight);
+    // "Contain" without upscaling at baseline (zoom=1)
+    return Math.min(1, cw / nW, ch / nH);
+  }
+  function applyLayoutZoom(root, img) {
+    const st = state(root);
+    const nW = img.naturalWidth || img.width || 1;
+    const nH = img.naturalHeight || img.height || 1;
+    const f  = fitScale(root, img); // baseline fit
+    const z  = Math.max(0.1, Math.min(6, st.zoom || 1));
+    const w  = Math.max(1, Math.round(nW * f * z));
+    const h  = Math.max(1, Math.round(nH * f * z));
+    // Layout sizing => allows scrollbars, never visual cropping
+    img.style.transform = 'none';
+    img.style.objectFit = 'contain';
+    img.style.maxWidth = 'none';
+    img.style.maxHeight = 'none';
+    img.style.width  = w + 'px';
+    img.style.height = h + 'px';
+    root.style.overflow = 'auto';
+  }
+  function resetToFit(root, img) {
+    // Back to baseline "contain" fit
+    img.style.transform = 'none';
+    img.style.objectFit = 'contain';
+    img.style.maxWidth = '100%';
+    img.style.maxHeight = '100%';
+    img.style.width = '';
+    img.style.height = '';
+    root.style.overflow = 'auto';
+    state(root).zoom = 1;
+  }
   function attachWheelZoom(root, img) {
     const s = state(root);
     const onWheel = (e) => {
-      if (e.ctrlKey) return; // let system zoom happen if user insists
+      if (e.ctrlKey) return; // don't fight system zoom
       e.preventDefault();
-      const step = e.deltaY < 0 ? 0.08 : -0.08;
-      s.zoom = Math.min(5, Math.max(0.1, (s.zoom || 1) + step));
-      img.style.transformOrigin = 'center center';
-      img.style.transform = `scale(${s.zoom})`;
+      // multiplicative zoom feels nicer than additive
+      const factor = 1.08;
+      s.zoom = e.deltaY < 0 ? Math.min(6, (s.zoom || 1) * factor)
+                            : Math.max(0.1, (s.zoom || 1) / factor);
+      applyLayoutZoom(root, img);
     };
+    // initialize layout zoom at current size
+    applyLayoutZoom(root, img);
     root.addEventListener('wheel', onWheel, { passive: false });
     s.wheelHandler = onWheel;
   }
@@ -195,16 +235,22 @@
     }
   }
 
-  // ------------- Dissolve swap -------------
-  function swapWithFade(img, nextSrc) {
+  // ---------- dissolve swap ----------
+  function swapWithFade(root, img, nextSrc) {
     img.style.opacity = '0';
-    const on = () => { img.style.opacity = '1'; img.removeEventListener('load', on); };
+    const on = () => {
+      // On each image load, keep current zoom regime
+      if (settings().hoverZoom) resetToFit(root, img);
+      else applyLayoutZoom(root, img);
+      img.style.opacity = '1';
+      img.removeEventListener('load', on);
+    };
     img.addEventListener('load', on, { once: true });
     preload(nextSrc);
     img.src = nextSrc;
   }
 
-  // ------------- Enhance viewer window -------------
+  // ---------- enhance viewer ----------
   function enhanceViewer(root) {
     if (root.__gpEnhanced) return;
     root.__gpEnhanced = true;
@@ -213,7 +259,7 @@
     const img = root.querySelector('img');
     if (!img) return;
 
-    // Apply persisted rect once (optional)
+    // apply persisted rect once
     const s = settings();
     if (s.viewerRect && !root.__gpRectApplied) {
       const r = s.viewerRect;
@@ -224,7 +270,7 @@
       root.__gpRectApplied = true;
     }
 
-    // --- 💾 Save default size/position
+    // 💾
     const btnSave = document.createElement('button');
     btnSave.className = 'gp-btn gp-save';
     btnSave.title = 'Save as default size and location';
@@ -236,15 +282,21 @@
       log('Saved default viewer rect', settings().viewerRect);
     });
 
-    // --- 🔍 Toggle hover-zoom
+    // 🔍
     const btnZoom = document.createElement('button');
     btnZoom.className = 'gp-btn gp-zoom';
     btnZoom.title = 'Toggle hover zoom';
     btnZoom.textContent = '🔍';
+
     const applyZoomMode = () => {
-      const on = !!settings().hoverZoom;
-      if (on) { detachWheelZoom(root); attachHoverZoom(root, img); }
-      else    { detachHoverZoom(root, img); attachWheelZoom(root, img); }
+      if (settings().hoverZoom) {
+        detachWheelZoom(root);
+        resetToFit(root, img);
+        attachHoverZoom(root, img);
+      } else {
+        detachHoverZoom(root, img);
+        attachWheelZoom(root, img);
+      }
     };
     btnZoom.addEventListener('click', () => {
       settings().hoverZoom = !settings().hoverZoom;
@@ -254,14 +306,14 @@
 
     ctrls.append(btnSave, btnZoom);
 
-    // --- ⏯️ Slideshow + delay slider (0.1–10s)
+    // ⏯️ + delay (0.1–10s)
     const btnPlay = document.createElement('button');
     btnPlay.className = 'gp-btn gp-slide';
     btnPlay.title = 'Start/stop slideshow';
     btnPlay.textContent = '⏯️';
 
-    const slideWrap = document.createElement('div');
-    slideWrap.className = 'gp-slide-controls';
+    const wrap = document.createElement('div');
+    wrap.className = 'gp-slide-controls';
 
     const rng = document.createElement('input');
     rng.type = 'range'; rng.min = '100'; rng.max = '10000'; rng.step = '100';
@@ -270,10 +322,9 @@
     const lbl = document.createElement('span');
     lbl.className = 'gp-slide-label';
 
-    slideWrap.append(rng, lbl);
-    ctrls.append(btnPlay, slideWrap);
+    wrap.append(rng, lbl);
+    ctrls.append(btnPlay, wrap);
 
-    // init delay
     const st = state(root);
     rng.value = String(st.interval);
     lbl.textContent = (Math.round(st.interval / 100) / 10).toFixed(1) + 's';
@@ -282,7 +333,7 @@
       const L = galleryThumbs(); if (!L.length) return;
       const cur = baseName(img.getAttribute('src') || img.src);
       let i = L.findIndex(x => baseName(x) === cur); i = (i + 1) % L.length;
-      swapWithFade(img, L[i]);
+      swapWithFade(root, img, L[i]);
       preload(L[(i + 1) % L.length]);
     }
 
@@ -319,19 +370,25 @@
       const L = galleryThumbs(); if (!L.length) return;
       const cur = baseName(img.getAttribute('src') || img.src);
       let i = L.findIndex(x => baseName(x) === cur);
-      if (e.key === 'ArrowRight') { e.preventDefault(); i = (i + 1) % L.length; swapWithFade(img, L[i]); preload(L[(i + 1) % L.length]); }
-      if (e.key === 'ArrowLeft')  { e.preventDefault(); i = (i - 1 + L.length) % L.length; swapWithFade(img, L[i]); preload(L[(i - 1 + L.length) % L.length]); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); i = (i + 1) % L.length; swapWithFade(root, img, L[i]); preload(L[(i + 1) % L.length]); }
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); i = (i - 1 + L.length) % L.length; swapWithFade(root, img, L[i]); preload(L[(i - 1 + L.length) % L.length]); }
       if (e.key === ' ')          { e.preventDefault(); btnPlay.click(); }
       if (e.key === 'Escape')     { root.querySelector('.dragClose')?.click(); }
     };
     root.addEventListener('mouseenter', () => document.addEventListener('keydown', onKey));
     root.addEventListener('mouseleave', () => document.removeEventListener('keydown', onKey));
 
-    // Start with current zoom mode
+    // Start in persisted mode
     applyZoomMode();
+
+    // Re-apply layout sizes after window resize (to keep no-crop behavior)
+    const onResize = () => { if (!settings().hoverZoom) applyLayoutZoom(root, img); };
+    const ro = new ResizeObserver(onResize);
+    ro.observe(root);
+    root.__gpResizeObs = ro;
   }
 
-  // ------------- Observe added viewer windows -------------
+  // ---------- observe new viewers ----------
   function observeViewers() {
     const mo = new MutationObserver((muts) => {
       for (const m of muts) {
@@ -340,36 +397,18 @@
           if (n.classList?.contains('galleryImageDraggable')) {
             enhanceViewer(n);
           }
-          // Also catch nested
-          const nodes = n.querySelectorAll?.('.galleryImageDraggable');
-          nodes && nodes.forEach(enhanceViewer);
+          n.querySelectorAll?.('.galleryImageDraggable')?.forEach(enhanceViewer);
         }
       }
     });
     mo.observe(document.body, { childList: true, subtree: true });
   }
 
-  // ------------- Watch gallery panel -------------
-  function observeGallery() {
-    let initialized = false;
-    const initGallery = () => {
-      const g = document.getElementById('gallery');
-      if (!g || initialized) return;
-      initialized = true;
-      retitleGallery();
-      unlockGalleryResize();
-    };
-    // run once now + watch body for when #gallery appears
-    initGallery();
-    const mo = new MutationObserver(initGallery);
-    mo.observe(document.body, { childList: true, subtree: true });
-  }
-
-  // ------------- Bootstrap -------------
+  // ---------- bootstrap ----------
   ready(() => {
     injectBaseCSS();
-    observeViewers();
     observeGallery();
+    observeViewers();
     log('ready');
   });
 })();
