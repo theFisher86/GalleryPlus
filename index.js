@@ -65,12 +65,16 @@
   }
 
   function gpSaveSettings(partial = {}) {
+    const prevEnabled = _settingsBag().enabled;
     const c = ctx();
     if (c?.extensionSettings) {
       c.extensionSettings[EXT_ID] = { ..._settingsBag(), ...partial };
     } else {
       const merged = { ..._settingsBag(), ...partial };
       localStorage.setItem('GP_SETTINGS', JSON.stringify(merged));
+    }
+    if (partial.enabled !== undefined && partial.enabled !== prevEnabled) {
+      partial.enabled ? startObservers() : stopObservers();
     }
   }
 
@@ -99,14 +103,10 @@
       t.textContent = 'Image GalleryPlus';
     }
   }
-  const galleryObserver = new MutationObserver(applyGalleryTitle);
-  galleryObserver.observe(document.body, { childList: true, subtree: true });
-  applyGalleryTitle();
+  let galleryObserver;
+  let viewerObserver;
 
-  // -------------------------------
-  // Observe new viewer windows
-  // -------------------------------
-  const viewerObserver = new MutationObserver((muts) => {
+  function viewerMutations(muts) {
     for (const m of muts) {
       for (const n of m.addedNodes) {
         if (!(n instanceof HTMLElement)) continue;
@@ -114,8 +114,32 @@
         n.querySelectorAll?.('.draggable.galleryImageDraggable')?.forEach(wireViewer);
       }
     }
-  });
-  viewerObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function startObservers() {
+    if (!galleryObserver) {
+      galleryObserver = new MutationObserver(applyGalleryTitle);
+      galleryObserver.observe(document.body, { childList: true, subtree: true });
+      applyGalleryTitle();
+    }
+    if (!viewerObserver) {
+      viewerObserver = new MutationObserver(viewerMutations);
+      viewerObserver.observe(document.body, { childList: true, subtree: true });
+    }
+  }
+
+  function stopObservers() {
+    galleryObserver?.disconnect();
+    viewerObserver?.disconnect();
+    galleryObserver = null;
+    viewerObserver = null;
+  }
+
+  window.addEventListener('beforeunload', stopObservers);
+
+  if (gpSettings().enabled) {
+    startObservers();
+  }
 
   // -------------------------------
   // Wire viewer
