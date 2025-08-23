@@ -692,6 +692,10 @@
     // A gentle front, fuller back
     const e = easeInOutCubic(p);
 
+    // Rotate Image B a full 360° across the transition, so it ends aligned
+    const angle = 360 * e;
+    g.setAttribute('transform', `rotate(${angle.toFixed(3)} ${cx.toFixed(2)} ${cy.toFixed(2)})`);
+
     // Spiral reveal along the path
     const dash = (1 - e) * totalLen;
     path.style.strokeDashoffset = dash;
