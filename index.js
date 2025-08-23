@@ -1,633 +1,511 @@
-// GalleryPlus — SillyTavern extension
-// index.js — drag-safe + no-crop wheel-zoom + slideshow, etc.
+/* GalleryPlus – index.js (drop-in)
+ * Adds slideshow (⏯️ + speed slider), transition selector (😶‍🌫️ / 😵‍💫 / ➡️ / ⬇️),
+ * themed glows, spiral overlay, push transitions, and preserves existing viewer UX.
+ *
+ * Safe to re-load. Refrains from double-binding if already initialized.
+ */
 
-(() => {
-  const EXT = 'GalleryPlus';
-
-  // ---------- helpers ----------
-  const ctx = () => window.SillyTavern?.getContext?.() || {};
-  function settings() {
-    const c = ctx();
-    if (!c.extensionSettings) c.extensionSettings = {};
-    if (!c.extensionSettings[EXT]) c.extensionSettings[EXT] = {};
-    const s = c.extensionSettings[EXT];
-    if (s.hoverZoomScale == null) s.hoverZoomScale = 1.08;
-    if (s.hoverZoom == null) s.hoverZoom = true;
-    if (s.slideshowMs == null) s.slideshowMs = 3000;
-    if (s.masonryDense == null) s.masonryDense = false;
-    if (s.showCaptions == null) s.showCaptions = true;
-    if (s.webpOnly == null) s.webpOnly = false;
-    return s;
-  }
-  const save = () =>
-    (window.saveSettingsDebounced || window.SillyTavern?.saveSettingsDebounced || (()=>{})).call(null);
-  const ready = (fn) =>
-    (document.readyState === 'loading'
-      ? document.addEventListener('DOMContentLoaded', fn, { once: true })
-      : fn());
-  const log = (...a) => console.log(`[${EXT}]`, ...a);
-
-  // ---------- minimal CSS (no #gallery inset overrides) ----------
-  function injectBaseCSS() {
-    if (document.getElementById('gp-base-css')) return;
-    const st = document.createElement('style');
-    st.id = 'gp-base-css';
-    st.textContent = `
-/* Controls block, left of the toolbar */
-.galleryImageDraggable .gp-controls,
-#gallery .gp-controls {
-  position: absolute;
-  top: 6px;
-  left: 8px;
-  z-index: 5;
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-/* Buttons */
-.gp-btn {
-  border: none;
-  background: transparent;
-  font-size: 18px;
-  line-height: 1;
-  padding: 2px 6px;
-  cursor: pointer;
-  filter: drop-shadow(0 0 0 var(--SmartThemeQuoteTextColor, #9cf));
-  transition: filter 140ms ease, transform 120ms ease;
-}
-.gp-btn:hover {
-  filter: drop-shadow(0 0 6px var(--SmartThemeQuoteTextColor, #9cf));
-  transform: translateY(-1px);
-}
-
-/* Slideshow controls */
-.gp-slide-controls { display: none; gap:8px; align-items:center; }
-.gp-slideshow-on .gp-slide-controls { display: inline-flex; }
-.gp-delay { width: 120px; }
-.gp-slide-label { font-size: 12px; opacity: .85; }
-
-/* Dissolve on image swap */
-.galleryImageDraggable img { transition: opacity 220ms ease; }
-
-/* Theme glow for windows */
-#gallery, .galleryImageDraggable {
-  box-shadow: 0 8px 32px -8px rgba(0,0,0,.45),
-              0 0 12px -2px var(--SmartThemeQuoteTextColor, rgba(160,200,255,.35));
-}
-    `;
-    document.head.appendChild(st);
-  }
-
-  // === GP: Dissolve Observer (final) =========================================
-// Watches for <img> src swaps inside .galleryImageDraggable and cross-fades
 (function () {
-  if (window.gpDissolveObsInstalled) return;
-  window.gpDissolveObsInstalled = true;
+  // ---- Guard for double load ------------------------------------------------
+  if (window.__GalleryPlusLoaded) return;
+  window.__GalleryPlusLoaded = true;
 
-  function isViewerImg(node) {
-    return node && node.tagName === 'IMG' && node.closest('.galleryImageDraggable');
+  // ---- Constants / Helpers --------------------------------------------------
+  const GP_NS = 'GalleryPlus';
+  const GP_DEFAULTS = {
+    enabled: true,
+    openHeight: 800,
+    hoverZoom: true,
+    hoverZoomScale: 1.08,
+    viewerRect: null,
+    masonryDense: false,
+    showCaptions: true,
+    webpOnly: false,
+    slideshowSpeedSec: 3.0,
+    slideshowTransition: 'crossfade', // 'crossfade' | 'spiral' | 'pushH' | 'pushV'
+  };
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+  // Convenience: read ST extension settings bag
+  function gpSettings() {
+    try {
+      const ctx = SillyTavern.getContext();
+      const bag = ctx.extensionSettings || (ctx.extensionSettings = {});
+      bag[GP_NS] = { ...GP_DEFAULTS, ...(bag[GP_NS] || {}) };
+      return bag[GP_NS];
+    } catch {
+      // Fallback if ST context not ready yet
+      window.__gpFallbackSettings = { ...GP_DEFAULTS, ...(window.__gpFallbackSettings || {}) };
+      return window.__gpFallbackSettings;
+    }
   }
-
-  function dropGhostFade(img, oldSrc) {
-    if (!oldSrc || oldSrc === img.src) return;
-
-    const viewer = img.closest('.galleryImageDraggable');
-    if (!viewer) return;
-
-    // Compute image box so the ghost only covers the image area,
-    // not the panel controls.
-    const r = img.getBoundingClientRect();
-    const rv = viewer.getBoundingClientRect();
-
-    const ghost = document.createElement('img');
-    ghost.className = 'gp-fader';
-    ghost.src = oldSrc;
-
-    // Place the ghost over the exact image box inside the viewer
-    ghost.style.left = (r.left - rv.left) + 'px';
-    ghost.style.top = (r.top - rv.top) + 'px';
-    ghost.style.width = r.width + 'px';
-    ghost.style.height = r.height + 'px';
-
-    viewer.appendChild(ghost);
-
-    // Kick off the fade
-    requestAnimationFrame(() => {
-      ghost.style.opacity = '0';
-      ghost.addEventListener('transitionend', () => ghost.remove(), { once: true });
-    });
-  }
-
-  function onMutations(list) {
-    for (const m of list) {
-      if (m.type === 'attributes' && m.attributeName === 'src' && isViewerImg(m.target)) {
-        dropGhostFade(m.target, m.oldValue);
-      }
+  function gpSaveSettings(next) {
+    try {
+      const ctx = SillyTavern.getContext();
+      const bag = ctx.extensionSettings || (ctx.extensionSettings = {});
+      bag[GP_NS] = { ...gpSettings(), ...next };
+    } catch {
+      window.__gpFallbackSettings = { ...gpSettings(), ...next };
     }
   }
 
-  function installObserver() {
-    if (window.gpDissolveObs) return;
-    const obs = new MutationObserver(onMutations);
-    // Watch the whole document for <img src> changes
-    obs.observe(document.body, {
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['src'],
-      attributeOldValue: true,
-    });
-    window.gpDissolveObs = obs;
-    console.log('[GalleryPlus] Dissolve observer installed');
+  // Read a CSS var (computed) or return fallback
+  function cssVar(name, fallback = '') {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name);
+    return v && v.trim() ? v.trim() : fallback;
   }
 
-  // Make sure it runs once, regardless of load timing
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', installObserver, { once: true });
-  } else {
-    installObserver();
+  // Expose/refresh our theme variables so CSS you already added can use them
+  function applyThemeVars() {
+    // Hover glow should follow UnderlineColor
+    document.documentElement.style.setProperty('--GP-GlowColor', 'var(--SmartThemeUnderlineColor)');
+    // Spiral stroke uses QuoteColor
+    const quote = cssVar('--SmartThemeQuoteColor', '#7aa2f7');
+    document.documentElement.style.setProperty('--GP-SpiralStroke', quote);
   }
-})();
 
-  // ---------- gallery title + resize unlock (single-shot, drag-safe) ----------
-  function retitleGallery() {
-    const span = document.querySelector('#gallery .dragTitle span');
-    if (span && span.textContent !== 'Image GalleryPlus') {
-      span.textContent = 'Image GalleryPlus';
+  // ---- Viewer discovery / lifecycle ----------------------------------------
+  function isViewer(root) {
+    return root?.classList?.contains('galleryImageDraggable') && root.querySelector('img');
+  }
+
+  function discoverViewers() {
+    return $$('.draggable.galleryImageDraggable').filter(isViewer);
+  }
+
+  function onNewViewer(root) {
+    if (!isViewer(root) || root.__gpWired) return;
+    root.__gpWired = true;
+
+    buildViewerChrome(root);
+    wireZoom(root);         // keeps your hover + wheel zoom behavior
+    wireSlideshow(root);    // ⏯️ + speed + transition
+    // keep drag/resize as-is (we're not touching MovingUI bindings)
+  }
+
+  // Mutation observer to enhance newly opened viewers
+  const mo = new MutationObserver((muts) => {
+    for (const m of muts) {
+      m.addedNodes && m.addedNodes.forEach((n) => {
+        if (!(n instanceof HTMLElement)) return;
+        if (isViewer(n)) onNewViewer(n);
+        // also catch nested img viewer (sometimes injected inside container)
+        discoverViewers().forEach(onNewViewer);
+      });
     }
-  }
-  function unlockGalleryResizeOnce() {
-    const g = document.getElementById('gallery');
-    if (!g || g.__gpResizeUnlocked) return;
-    g.__gpResizeUnlocked = true;
+  });
 
-    // Clear bottom/right/inset ONCE so width/height matter for resize.
-    // Do NOT force them via CSS; let MovingUI handle drag positioning.
-    g.style.right = '';
-    g.style.bottom = '';
-    g.style.inset = '';
+  // ---- Controls chrome (💾 🔍 ⏯️ + slider + transition) ---------------------
+  function buildViewerChrome(root) {
+    // Insert controls container BEFORE the panelControlBar (top-left of window)
+    const pcb = $('.panelControlBar', root);
+    if (!pcb) return;
 
-    const r = g.getBoundingClientRect();
-    if (!g.style.width)  g.style.width  = r.width  + 'px';
-    if (!g.style.height) g.style.height = r.height + 'px';
-    g.style.resize = 'both';
-    g.style.overflow = 'auto';
-  }
-
-  // ---------- gallery detection ----------
-  function observeGallery() {
-    const init = () => {
-      const g = document.getElementById('gallery');
-      if (!g) return;
-      retitleGallery();
-      unlockGalleryResizeOnce();
-    };
-    init();
-    const mo = new MutationObserver(init);
-    mo.observe(document.body, { childList: true, subtree: true });
-  }
-
-  // ---------- thumbnail helpers ----------
-  function galleryThumbs() {
-    const nodes = document.querySelectorAll('#dragGallery .nGY2GThumbnailImg');
-    return Array.from(nodes).map(n => n.getAttribute('src') || n.src).filter(Boolean);
-  }
-  const baseName = (p='') => p.split('/').pop();
-  const preload = (src) => { const i = new Image(); i.src = src; return i; };
-
-  // ---------- per-viewer state ----------
-  const VIEW_STATE = new WeakMap();
-  function state(root) {
-    let st = VIEW_STATE.get(root);
-    if (!st) {
-      st = { timer: null, interval: settings().slideshowMs, zoom: 1, hoverOn: !!settings().hoverZoom };
-      VIEW_STATE.set(root, st);
-    }
-    return st;
-  }
-
-  // ---------- controls ----------
-  function ensureControls(root) {
-    let ctrls = root.querySelector(':scope > .gp-controls');
-    if (!ctrls) {
-      ctrls = document.createElement('div');
-      ctrls.className = 'gp-controls';
-      root.insertBefore(ctrls, root.firstChild); // left of the toolbar
-    }
-    return ctrls;
-  }
-
-  // ---------- hover-zoom (inverse, micro) ----------
-  function attachHoverZoom(root, img) {
-    const s = state(root);
-    const scale = settings().hoverZoomScale || 1.08;
-    const onMove = (e) => {
-      const rect = img.getBoundingClientRect();
-      const cx = (e.clientX - rect.left) / rect.width - 0.5;
-      const cy = (e.clientY - rect.top) / rect.height - 0.5;
-      const tx = (-cx * 16).toFixed(2);
-      const ty = (-cy * 16).toFixed(2);
-      img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-    };
-    const onLeave = () => { img.style.transform = 'none'; };
-    root.addEventListener('mousemove', onMove);
-    root.addEventListener('mouseleave', onLeave);
-    s.hoverHandlers = { onMove, onLeave };
-  }
-  function detachHoverZoom(root, img) {
-    const s = state(root);
-    if (s.hoverHandlers) {
-      root.removeEventListener('mousemove', s.hoverHandlers.onMove);
-      root.removeEventListener('mouseleave', s.hoverHandlers.onLeave);
-      s.hoverHandlers = null;
-    }
-    img.style.transform = 'none';
-  }
-
-  // ---------- wheel zoom (layout-based, no cropping) ----------
-  function fitScale(root, img) {
-    const nW = img.naturalWidth || img.width || 1;
-    const nH = img.naturalHeight || img.height || 1;
-    const cw = Math.max(1, root.clientWidth);
-    const ch = Math.max(1, root.clientHeight);
-    // "Contain" without upscaling at baseline (zoom=1)
-    return Math.min(1, cw / nW, ch / nH);
-  }
-  function applyLayoutZoom(root, img) {
-    const st = state(root);
-    const nW = img.naturalWidth || img.width || 1;
-    const nH = img.naturalHeight || img.height || 1;
-    const f  = fitScale(root, img); // baseline fit
-    const z  = Math.max(0.1, Math.min(6, st.zoom || 1));
-    const w  = Math.max(1, Math.round(nW * f * z));
-    const h  = Math.max(1, Math.round(nH * f * z));
-    // Layout sizing => allows scrollbars, never visual cropping
-    img.style.transform = 'none';
-    img.style.objectFit = 'contain';
-    img.style.maxWidth = 'none';
-    img.style.maxHeight = 'none';
-    img.style.width  = w + 'px';
-    img.style.height = h + 'px';
-    root.style.overflow = 'auto';
-  }
-  function resetToFit(root, img) {
-    // Back to baseline "contain" fit
-    img.style.transform = 'none';
-    img.style.objectFit = 'contain';
-    img.style.maxWidth = '100%';
-    img.style.maxHeight = '100%';
-    img.style.width = '';
-    img.style.height = '';
-    root.style.overflow = 'auto';
-    state(root).zoom = 1;
-  }
-  function attachWheelZoom(root, img) {
-    const s = state(root);
-    const onWheel = (e) => {
-      if (e.ctrlKey) return; // don't fight system zoom
-      e.preventDefault();
-      // multiplicative zoom feels nicer than additive
-      const factor = 1.08;
-      s.zoom = e.deltaY < 0 ? Math.min(6, (s.zoom || 1) * factor)
-                            : Math.max(0.1, (s.zoom || 1) / factor);
-      applyLayoutZoom(root, img);
-    };
-    // initialize layout zoom at current size
-    applyLayoutZoom(root, img);
-    root.addEventListener('wheel', onWheel, { passive: false });
-    s.wheelHandler = onWheel;
-  }
-  function detachWheelZoom(root) {
-    const s = state(root);
-    if (s.wheelHandler) {
-      root.removeEventListener('wheel', s.wheelHandler);
-      s.wheelHandler = null;
-    }
-  }
-
-  // ---------- dissolve swap ----------
-  function swapWithFade(root, img, nextSrc) {
-    img.style.opacity = '0';
-    const on = () => {
-      // On each image load, keep current zoom regime
-      if (settings().hoverZoom) resetToFit(root, img);
-      else applyLayoutZoom(root, img);
-      img.style.opacity = '1';
-      img.removeEventListener('load', on);
-    };
-    img.addEventListener('load', on, { once: true });
-    preload(nextSrc);
-    img.src = nextSrc;
-  }
-
-  // ---------- enhance viewer ----------
-  function enhanceViewer(root) {
-    if (root.__gpEnhanced) return;
-    root.__gpEnhanced = true;
-
-    const ctrls = ensureControls(root);
-    const img = root.querySelector('img');
-    if (!img) return;
-
-    // apply persisted rect once
-    const s = settings();
-    if (s.viewerRect && !root.__gpRectApplied) {
-      const r = s.viewerRect;
-      root.style.top = r.top + 'px';
-      root.style.left = r.left + 'px';
-      root.style.width = r.width + 'px';
-      root.style.height = r.height + 'px';
-      root.__gpRectApplied = true;
+    let left = $('.gp-controls-left', root);
+    if (!left) {
+      left = document.createElement('div');
+      left.className = 'gp-controls-left'; // your CSS positions this TL above header
+      // Insert before panelControlBar so it sits "to the left" visually
+      pcb.parentNode.insertBefore(left, pcb);
+    } else {
+      left.textContent = ''; // clear
     }
 
-    // 💾
+    // Buttons
     const btnSave = document.createElement('button');
     btnSave.className = 'gp-btn gp-save';
     btnSave.title = 'Save as default size and location';
     btnSave.textContent = '💾';
-    btnSave.addEventListener('click', () => {
-      const r = root.getBoundingClientRect();
-      settings().viewerRect = { top: r.top, left: r.left, width: r.width, height: r.height };
-      save();
-      log('Saved default viewer rect', settings().viewerRect);
-    });
 
-    // 🔍
     const btnZoom = document.createElement('button');
     btnZoom.className = 'gp-btn gp-zoom';
-    btnZoom.title = 'Toggle hover zoom';
+    btnZoom.title = 'Toggle hover zoom / wheel zoom';
     btnZoom.textContent = '🔍';
 
-    const applyZoomMode = () => {
-      if (settings().hoverZoom) {
-        detachWheelZoom(root);
-        resetToFit(root, img);
-        attachHoverZoom(root, img);
-      } else {
-        detachHoverZoom(root, img);
-        attachWheelZoom(root, img);
-      }
-    };
-    btnZoom.addEventListener('click', () => {
-      settings().hoverZoom = !settings().hoverZoom;
-      save();
-      applyZoomMode();
-    });
-
-    ctrls.append(btnSave, btnZoom);
-
-    // ⏯️ + delay (0.1–10s)
     const btnPlay = document.createElement('button');
-    btnPlay.className = 'gp-btn gp-slide';
-    btnPlay.title = 'Start/stop slideshow';
+    btnPlay.className = 'gp-btn gp-play';
+    btnPlay.title = 'Start/Stop slideshow';
     btnPlay.textContent = '⏯️';
 
-    const wrap = document.createElement('div');
-    wrap.className = 'gp-slide-controls';
+    // Speed slider
+    const speed = document.createElement('input');
+    speed.type = 'range';
+    speed.min = '0.1';
+    speed.max = '10';
+    speed.step = '0.1';
+    speed.value = String(gpSettings().slideshowSpeedSec || 3);
+    speed.className = 'gp-speed gp-glow-on-hover';
+    speed.title = 'Slideshow delay (seconds)';
 
-    const rng = document.createElement('input');
-    rng.type = 'range'; rng.min = '100'; rng.max = '10000'; rng.step = '100';
-    rng.className = 'gp-delay';
+    // Transition selector (emoji narrow)
+    const sel = document.createElement('select');
+    sel.className = 'gp-trans';
+    sel.title = 'Transition';
+    [
+      { v: 'crossfade', t: '😶‍🌫️' },
+      { v: 'spiral',    t: '😵‍💫' },
+      { v: 'pushH',     t: '➡️'   },
+      { v: 'pushV',     t: '⬇️'   },
+    ].forEach(({ v, t }) => {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = t;
+      sel.appendChild(o);
+    });
+    sel.value = gpSettings().slideshowTransition || 'crossfade';
 
-    const lbl = document.createElement('span');
-    lbl.className = 'gp-slide-label';
+    // Append controls
+    left.appendChild(btnSave);
+    left.appendChild(btnZoom);
+    left.appendChild(btnPlay);
+    left.appendChild(speed);
+    left.appendChild(sel);
 
-    wrap.append(rng, lbl);
-    ctrls.append(btnPlay, wrap);
-
-    const st = state(root);
-    rng.value = String(st.interval);
-    lbl.textContent = (Math.round(st.interval / 100) / 10).toFixed(1) + 's';
-
-    function tick() {
-      const L = galleryThumbs(); if (!L.length) return;
-      const cur = baseName(img.getAttribute('src') || img.src);
-      let i = L.findIndex(x => baseName(x) === cur); i = (i + 1) % L.length;
-      swapWithFade(root, img, L[i]);
-      preload(L[(i + 1) % L.length]);
-    }
-
-    btnPlay.addEventListener('click', () => {
-      const st = state(root);
-      if (st.timer) {
-        clearInterval(st.timer); st.timer = null;
-        root.classList.remove('gp-slideshow-on');
-      } else {
-        st.timer = setInterval(tick, st.interval);
-        root.classList.add('gp-slideshow-on');
+    // Wire handlers
+    btnSave.addEventListener('click', () => saveViewerRect(root));
+    btnZoom.addEventListener('click', () => toggleZoom(root));
+    btnPlay.addEventListener('click', () => toggleSlideshow(root));
+    speed.addEventListener('input', () => {
+      const secs = Math.max(0.1, Math.min(10, parseFloat(speed.value) || 3));
+      gpSaveSettings({ slideshowSpeedSec: secs });
+      // live-update if currently running
+      if (root.__gpSlideTimer) {
+        startSlideshow(root); // restarts timer with new delay
       }
     });
-
-    rng.addEventListener('input', () => {
-      const ms = +rng.value;
-      const st = state(root);
-      st.interval = ms;
-      settings().slideshowMs = ms; save();
-      lbl.textContent = (Math.round(ms / 100) / 10).toFixed(1) + 's';
-      if (st.timer) { clearInterval(st.timer); st.timer = setInterval(tick, st.interval); }
+    sel.addEventListener('change', () => {
+      gpSaveSettings({ slideshowTransition: sel.value });
     });
 
-    // Stop slideshow on close
-    root.querySelector('.dragClose')?.addEventListener('click', () => {
-      const st = state(root);
-      if (st.timer) clearInterval(st.timer);
-    }, { once: true });
+    // Title tweak: Image Gallery -> Image GalleryPlus (gallery drawer)
+    const galTitle = document.querySelector('#gallery .dragTitle span');
+    if (galTitle && galTitle.textContent.trim() !== 'Image GalleryPlus') {
+      galTitle.textContent = 'Image GalleryPlus';
+    }
+  }
 
-    // Keyboard nav while hovered
-    const onKey = (e) => {
-      const tag = e.target?.tagName || '';
-      if (/INPUT|TEXTAREA|SELECT/.test(tag)) return;
-      const L = galleryThumbs(); if (!L.length) return;
-      const cur = baseName(img.getAttribute('src') || img.src);
-      let i = L.findIndex(x => baseName(x) === cur);
-      if (e.key === 'ArrowRight') { e.preventDefault(); i = (i + 1) % L.length; swapWithFade(root, img, L[i]); preload(L[(i + 1) % L.length]); }
-      if (e.key === 'ArrowLeft')  { e.preventDefault(); i = (i - 1 + L.length) % L.length; swapWithFade(root, img, L[i]); preload(L[(i - 1 + L.length) % L.length]); }
-      if (e.key === ' ')          { e.preventDefault(); btnPlay.click(); }
-      if (e.key === 'Escape')     { root.querySelector('.dragClose')?.click(); }
+  // ---- Zoom (wheel zoom + hover assist) -------------------------------------
+  function wireZoom(root) {
+    const img = $('img', root);
+    if (!img) return;
+
+    img.style.objectFit = 'contain'; // never crop; respect viewer box
+    img.style.maxWidth = '100%';
+    img.style.maxHeight = '100%';
+
+    // Persisted flag
+    if (typeof root.__gpZoomEnabled !== 'boolean') {
+      root.__gpZoomEnabled = !!gpSettings().hoverZoom;
+    }
+
+    let scale = 1;
+    let tx = 0, ty = 0;
+
+    function applyTransform() {
+      img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      img.style.transformOrigin = 'center center';
+    }
+
+    // Wheel zoom
+    root.addEventListener('wheel', (ev) => {
+      if (!root.__gpZoomEnabled) return;
+      ev.preventDefault();
+      const delta = -Math.sign(ev.deltaY) * 0.1; // zoom step
+      const next = Math.max(0.2, Math.min(8, scale + delta));
+      // keep center — simple approach: do not recompute tx/ty to mouse
+      scale = next;
+      applyTransform();
+    }, { passive: false });
+
+    // Drag image panning while zoomed (click+drag)
+    let dragging = false, sx = 0, sy = 0;
+    img.addEventListener('mousedown', (e) => {
+      if (scale <= 1) return; // no panning if not zoomed
+      dragging = true; sx = e.clientX; sy = e.clientY;
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      tx += (e.clientX - sx);
+      ty += (e.clientY - sy);
+      sx = e.clientX; sy = e.clientY;
+      applyTransform();
+    });
+    window.addEventListener('mouseup', () => (dragging = false));
+
+    root.__gpZoomReset = function () {
+      scale = 1; tx = 0; ty = 0; applyTransform();
     };
-    root.addEventListener('mouseenter', () => document.addEventListener('keydown', onKey));
-    root.addEventListener('mouseleave', () => document.removeEventListener('keydown', onKey));
-
-    // Start in persisted mode
-    applyZoomMode();
-
-    // Re-apply layout sizes after window resize (to keep no-crop behavior)
-    const onResize = () => { if (!settings().hoverZoom) applyLayoutZoom(root, img); };
-    const ro = new ResizeObserver(onResize);
-    ro.observe(root);
-    root.__gpResizeObs = ro;
+  }
+  function toggleZoom(root) {
+    root.__gpZoomEnabled = !root.__gpZoomEnabled;
+    if (!root.__gpZoomEnabled && root.__gpZoomReset) root.__gpZoomReset();
+    gpSaveSettings({ hoverZoom: root.__gpZoomEnabled });
   }
 
-  // ---------- observe new viewers ----------
-  function observeViewers() {
-    const mo = new MutationObserver((muts) => {
-      for (const m of muts) {
-        for (const n of m.addedNodes || []) {
-          if (!(n instanceof HTMLElement)) continue;
-          if (n.classList?.contains('galleryImageDraggable')) {
-            enhanceViewer(n);
-          }
-          n.querySelectorAll?.('.galleryImageDraggable')?.forEach(enhanceViewer);
-        }
-      }
+  // ---- Save default rect (💾) -----------------------------------------------
+  function saveViewerRect(root) {
+    const r = root.getBoundingClientRect();
+    gpSaveSettings({
+      viewerRect: { x: r.left, y: r.top, w: r.width, h: r.height },
     });
-    mo.observe(document.body, { childList: true, subtree: true });
   }
 
-  // ---------- bootstrap ----------
-  ready(() => {
-    injectBaseCSS();
-    observeGallery();
-    observeViewers();
-    log('ready');
-  });
-})();
-/* ===== GalleryPlus: viewer cross-fade installer ===== */
-(function gpInstallViewerCrossfade_bootstrap() {
-  // Avoid double-install if index.js is reloaded
-  if (window.__gpViewerObserver2?.disconnect) {
-    try { window.__gpViewerObserver2.disconnect(); } catch {}
+  // ---- Slideshow ------------------------------------------------------------
+  function wireSlideshow(root) {
+    if (root.__gpSlideWired) return;
+    root.__gpSlideWired = true;
+
+    // Keyboard left/right nav (while viewer focused/hovered)
+    root.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') { advance(root, +1); }
+      if (e.key === 'ArrowLeft')  { advance(root, -1); }
+    });
+
+    // Preload neighbor on hover to keep memory modest
+    root.addEventListener('mouseenter', () => preloadNeighbor(root, +1));
   }
-  window.__gpViewerObserver2 = null;
 
-  const ensureWrap = (img) => {
-    const existing = img.closest('.gp-imgwrap');
-    if (existing) return existing;
+  function toggleSlideshow(root) {
+    if (root.__gpSlideTimer) stopSlideshow(root);
+    else startSlideshow(root);
+  }
+  function startSlideshow(root) {
+    stopSlideshow(root);
+    const delayMs = Math.max(100, Math.min(10000, (gpSettings().slideshowSpeedSec || 3) * 1000));
+    root.__gpSlideTimer = setInterval(() => {
+      advance(root, +1);
+    }, delayMs);
+    root.classList.add('gp-slideshow-active');
+  }
+  function stopSlideshow(root) {
+    if (root.__gpSlideTimer) clearInterval(root.__gpSlideTimer);
+    root.__gpSlideTimer = null;
+    root.classList.remove('gp-slideshow-active');
+  }
 
-    const wrap = document.createElement('div');
-    wrap.className = 'gp-imgwrap';
-    // Only relative here; do NOT touch any draggable container styles.
-    wrap.style.position = 'relative';
-    wrap.style.display = 'block';
+  function preloadNeighbor(root, dir) {
+    const nextSrc = findNeighborSrc(root, dir);
+    if (!nextSrc) return;
+    const img = new Image();
+    img.src = nextSrc;
+  }
 
-    img.parentNode.insertBefore(wrap, img);
-    wrap.appendChild(img);
+  function advance(root, dir) {
+    const nextSrc = findNeighborSrc(root, dir);
+    if (!nextSrc) return;
+    performTransition(root, nextSrc, gpSettings().slideshowTransition || 'crossfade');
+  }
 
-    // Keep contain layout unless already customized elsewhere
-    if (!img.style.display) img.style.display = 'block';
-    if (!img.style.objectFit) img.style.objectFit = 'contain';
+  function findNeighborSrc(root, dir) {
+    // Find all thumbnails in current gallery container and current src index
+    const gal = document.querySelector('#dragGallery .nGY2GallerySub');
+    if (!gal) return null;
 
-    return wrap;
-  };
+    const thumbs = $$('.nGY2GThumbnailImg.nGY2TnImg2', gal);
+    if (!thumbs.length) return null;
 
-  const attachCrossfade = (img, duration = 240) => {
-    if (!img || img.__gpFade2Attached) return;
-    img.__gpFade2Attached = true;
-
-    const wrap = ensureWrap(img);
-
-    const obs = new MutationObserver((list) => {
-      for (const m of list) {
-        if (m.type !== 'attributes' || m.attributeName !== 'src') continue;
-        const oldSrc = m.oldValue;
-        const newSrc = img.getAttribute('src');
-        if (!oldSrc || oldSrc === newSrc) continue;
-
-        // Overlay with previous image on top
-        const overlay = document.createElement('img');
-        overlay.className = 'gp-fade-overlay';
-        overlay.src = oldSrc;
-        overlay.style.position = 'absolute';
-        overlay.style.inset = '0';
-        overlay.style.width = '100%';
-        overlay.style.height = '100%';
-        overlay.style.objectFit = getComputedStyle(img).objectFit || 'contain';
-        overlay.style.pointerEvents = 'none';
-        overlay.style.opacity = '1';
-        overlay.style.transition = `opacity ${duration}ms ease`;
-        wrap.appendChild(overlay);
-
-        // Fade new image in, then fade old out
-        img.style.transition = `opacity ${duration}ms ease`;
-        img.style.opacity = '0';
-
-        const onNewLoad = () => {
-          requestAnimationFrame(() => {
-            img.style.opacity = '1';
-            requestAnimationFrame(() => {
-              overlay.style.opacity = '0';
-              setTimeout(() => overlay.remove(), duration + 50);
-            });
-          });
-        };
-
-        if (img.complete && img.naturalWidth > 0) onNewLoad();
-        else img.addEventListener('load', onNewLoad, { once: true });
-      }
-    });
-
-    obs.observe(img, { attributes: true, attributeOldValue: true, attributeFilter: ['src'] });
-    img.__gpFade2Observer = obs;
-  };
-
-  // Attach to any current viewers
-  const attachNow = () => {
-    document.querySelectorAll('.galleryImageDraggable img').forEach((img) => attachCrossfade(img));
-  };
-
-  // Expose a one-shot installer GP can call from init()
-  window.gpInstallViewerCrossfade = function gpInstallViewerCrossfade() {
-    attachNow();
-    // Watch for future viewer windows
-    window.__gpViewerObserver2 = new MutationObserver((mut) => {
-      for (const m of mut) {
-        m.addedNodes && m.addedNodes.forEach(n => {
-          if (!(n instanceof HTMLElement)) return;
-          if (n.matches?.('.galleryImageDraggable img')) attachCrossfade(n);
-          n.querySelectorAll?.('.galleryImageDraggable img').forEach(img => attachCrossfade(img));
-        });
-      }
-    });
-    window.__gpViewerObserver2.observe(document.body, { childList: true, subtree: true });
-  };
-})();
-
-// === [GalleryPlus] theme + dissolve boot (safe to place at EOF) ===
-(function gpBootThemeAndFade() {
-  const once = (fn) => { let ran = false; return () => { if (ran) return; ran = true; fn(); }; };
-
-  const boot = once(() => {
-    try {
-      // Apply theme glow + dissolve styles if your helper block defines them
-      try { typeof gpApplyThemeGlow === 'function' && gpApplyThemeGlow(); } catch (e) { console.warn('[GalleryPlus] gpApplyThemeGlow error', e); }
-      try { typeof gpApplyDissolveStyles === 'function' && gpApplyDissolveStyles(); } catch (e) { console.warn('[GalleryPlus] gpApplyDissolveStyles error', e); }
-
-      // Re-apply glow when theme classes/vars change (works across ST themes)
-      const themeObserver = new MutationObserver(() => {
-        try { typeof gpApplyThemeGlow === 'function' && gpApplyThemeGlow(); } catch (e) { /* no-op */ }
-      });
-      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
-
-      // When a new viewer is inserted, enhance it once
-      const wireViewer = (root) => {
-        if (!root || root.dataset.gpWired === '1') return;
-        root.dataset.gpWired = '1';
-        try { typeof gpEnhanceViewer === 'function' && gpEnhanceViewer(root); } catch (e) { console.warn('[GalleryPlus] gpEnhanceViewer error', e); }
-      };
-
-      const mo = new MutationObserver((muts) => {
-        for (const m of muts) {
-          for (const n of m.addedNodes || []) {
-            if (n.nodeType !== 1) continue;
-            if (n.matches?.('.galleryImageDraggable')) wireViewer(n);
-            else wireViewer(n.querySelector?.('.galleryImageDraggable'));
-          }
-        }
-      });
-      mo.observe(document.body, { childList: true, subtree: true });
-
-      // Enhance any viewer already open on boot
-      document.querySelectorAll('.galleryImageDraggable').forEach(wireViewer);
-
-      console.log('[GalleryPlus] theme + dissolve boot ready');
-    } catch (e) {
-      console.warn('[GalleryPlus] boot failure', e);
+    const current = $('img', root)?.getAttribute('src');
+    const list = thumbs.map((n) => n.getAttribute('src') || n.parentElement?.style?.backgroundImage?.replace(/^url\("?|"?\)$/g,'') || '');
+    let idx = list.findIndex((s) => s === current);
+    if (idx < 0) {
+      // fallback: try to match filename only
+      const name = current?.split('/').pop();
+      idx = list.findIndex((s) => s.split('/').pop() === name);
     }
-  });
+    if (idx < 0) return null;
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot, { once: true });
-  } else {
-    boot();
+    const next = (idx + (dir > 0 ? 1 : -1) + list.length) % list.length;
+    return list[next];
   }
+
+  // ---- Transitions ----------------------------------------------------------
+  function performTransition(root, nextSrc, type) {
+    const baseImg = $('img', root);
+    if (!baseImg) return;
+
+    // Avoid re-entrant transitions
+    if (root.__gpTransitioning) return;
+    root.__gpTransitioning = true;
+
+    const end = () => { root.__gpTransitioning = false; };
+
+    switch (type) {
+      case 'spiral':
+        transitionCrossfade(root, baseImg, nextSrc, 450, () => {
+          addSpiralOverlay(root, 600);
+        }, end);
+        break;
+      case 'pushH':
+        transitionPush(root, baseImg, nextSrc, 'H', 350, end);
+        break;
+      case 'pushV':
+        transitionPush(root, baseImg, nextSrc, 'V', 350, end);
+        break;
+      case 'crossfade':
+      default:
+        transitionCrossfade(root, baseImg, nextSrc, 350, null, end);
+        break;
+    }
+  }
+
+  // Crossfade by ghosting current image, swapping base src, then fading in
+  function transitionCrossfade(root, baseImg, nextSrc, durMs, beforeFx, done) {
+    const rect = baseImg.getBoundingClientRect();
+    const ghost = baseImg.cloneNode(true);
+    ghost.classList.add('gp-ghost');
+    ghost.style.position = 'absolute';
+    ghost.style.top = baseImg.offsetTop + 'px';
+    ghost.style.left = baseImg.offsetLeft + 'px';
+    ghost.style.width = baseImg.clientWidth + 'px';
+    ghost.style.height = baseImg.clientHeight + 'px';
+    ghost.style.pointerEvents = 'none';
+    ghost.style.transition = `opacity ${durMs}ms ease`;
+    root.appendChild(ghost);
+
+    // Swap base src hidden, then fade it up while ghost fades out
+    baseImg.style.opacity = '0';
+    baseImg.src = nextSrc;
+
+    if (typeof beforeFx === 'function') beforeFx();
+
+    requestAnimationFrame(() => {
+      baseImg.style.transition = `opacity ${durMs}ms ease`;
+      baseImg.style.opacity = '1';
+      ghost.style.opacity = '0';
+      setTimeout(() => {
+        ghost.remove();
+        done && done();
+      }, durMs + 20);
+    });
+  }
+
+  // Push transition: move current out and next in along X or Y
+  function transitionPush(root, baseImg, nextSrc, axis = 'H', durMs = 350, done) {
+    const rect = baseImg.getBoundingClientRect();
+
+    // create two overlay imgs
+    const cur = baseImg.cloneNode(true);
+    const nxt = baseImg.cloneNode(true);
+    nxt.src = nextSrc;
+
+    [cur, nxt].forEach((el) => {
+      el.classList.add('gp-ghost');
+      el.style.position = 'absolute';
+      el.style.top = baseImg.offsetTop + 'px';
+      el.style.left = baseImg.offsetLeft + 'px';
+      el.style.width = baseImg.clientWidth + 'px';
+      el.style.height = baseImg.clientHeight + 'px';
+      el.style.pointerEvents = 'none';
+      el.style.transition = `transform ${durMs}ms ease, opacity ${durMs}ms ease`;
+      root.appendChild(el);
+    });
+
+    const distX = axis === 'H' ? 1 : 0;
+    const distY = axis === 'V' ? 1 : 0;
+
+    // start positions
+    cur.style.transform = 'translate(0,0)';
+    nxt.style.transform = `translate(${distX ? 100 : 0}%, ${distY ? 100 : 0}%)`;
+    nxt.style.opacity = '1';
+
+    // animate
+    requestAnimationFrame(() => {
+      cur.style.transform = `translate(${distX ? -100 : 0}%, ${distY ? -100 : 0}%)`;
+      cur.style.opacity = '0';
+      nxt.style.transform = 'translate(0,0)';
+      setTimeout(() => {
+        // commit the real img source
+        baseImg.src = nextSrc;
+        cur.remove(); nxt.remove();
+        done && done();
+      }, durMs + 20);
+    });
+  }
+
+  // Spiral overlay: SVG, 1px themed stroke, scales/rotates then fades
+  function addSpiralOverlay(root, durMs = 600) {
+    // Build SVG sized to viewer
+    const box = root.getBoundingClientRect();
+    const w = Math.max(100, box.width);
+    const h = Math.max(100, box.height);
+    const cx = w / 2;
+    const cy = h / 2;
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.classList.add('gp-spiral');
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', h);
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    svg.style.position = 'absolute';
+    svg.style.inset = '0';
+    svg.style.pointerEvents = 'none';
+    svg.style.opacity = '0.85';
+    svg.style.transition = `transform ${durMs}ms ease, opacity ${durMs}ms ease`;
+
+    // Archimedean spiral path
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', 'var(--GP-SpiralStroke)');
+    path.setAttribute('stroke-width', '1');
+    path.setAttribute('vector-effect', 'non-scaling-stroke');
+
+    const turns = 3.2;          // ~3 turns
+    const steps = 850;          // smooth curve
+    const a = 1.0;
+    const b = Math.min(w, h) * 0.035; // spacing between arms
+    let d = '';
+    for (let i = 0; i <= steps; i++) {
+      const t = (i / steps) * (Math.PI * 2 * turns);
+      const r = a + b * t;
+      const x = cx + r * Math.cos(t);
+      const y = cy + r * Math.sin(t);
+      d += (i === 0 ? 'M ' : ' L ') + x.toFixed(2) + ' ' + y.toFixed(2);
+    }
+    path.setAttribute('d', d);
+    svg.appendChild(path);
+    root.appendChild(svg);
+
+    // Animate scale/rotate out
+    svg.style.transformOrigin = '50% 50%';
+    svg.style.transform = 'scale(0.25) rotate(0deg)';
+    requestAnimationFrame(() => {
+      svg.style.transform = 'scale(1.05) rotate(360deg)';
+      svg.style.opacity = '0';
+      setTimeout(() => svg.remove(), durMs + 30);
+    });
+  }
+
+  // ---- Boot -----------------------------------------------------------------
+  function init() {
+    applyThemeVars();
+    // Enhance any existing viewers
+    discoverViewers().forEach(onNewViewer);
+
+    // Watch for new viewers
+    mo.observe(document.body, { childList: true, subtree: true });
+
+    // Also, make sure gallery title says Image GalleryPlus
+    const galTitle = document.querySelector('#gallery .dragTitle span');
+    if (galTitle && galTitle.textContent.trim() !== 'Image GalleryPlus') {
+      galTitle.textContent = 'Image GalleryPlus';
+    }
+  }
+
+  // Run now or on DOMContentLoaded
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init, { once: true });
+  } else {
+    init();
+  }
+
+  // ---- Debug API (optional) -------------------------------------------------
+  window.GalleryPlus = Object.assign(window.GalleryPlus || {}, {
+    settings: gpSettings,
+    saveSettings: gpSaveSettings,
+    rescan: () => discoverViewers().forEach(onNewViewer),
+    setTransition: (t) => gpSaveSettings({ slideshowTransition: t }),
+    setDelay: (s) => gpSaveSettings({ slideshowSpeedSec: s }),
+  });
 })();

@@ -363,3 +363,99 @@
   transition: opacity var(--GP-DissolveMs) ease-in-out;
   z-index: 2; /* sits over the real image but below panel controls */
 }
+
+/* === GalleryPlus: Transitions UI + Themed glows === */
+:root {
+  --GP-TransMs: 450ms;     /* shared duration for push/spiral */
+  --GP-DissolveMs: 350ms;  /* your crossfade ghost */
+}
+
+/* Button/icon hover glow should use Underline color now */
+.gp-icon {
+  transition: filter 120ms ease;
+}
+.gp-icon:hover {
+  filter: drop-shadow(0 0 6px var(--SmartThemeUnderlineColor));
+}
+
+/* Speed slider glow on hover/active */
+.gp-speed-wrap input[type="range"].gp-speed-range {
+  outline: none;
+}
+.gp-speed-wrap input[type="range"].gp-speed-range:hover,
+.gp-speed-wrap input[type="range"].gp-speed-range:focus {
+  box-shadow: 0 0 8px var(--SmartThemeUnderlineColor);
+}
+
+/* Keep your themed window glows (you already added these) */
+#gallery.draggable,
+#gallery.draggable .galleryImageDraggable.draggable {
+  box-shadow: 0 0 16px var(--SmartThemeQuoteColor);
+}
+
+/* Cross-fade ghost (already working) */
+.galleryImageDraggable .gp-fader {
+  position: absolute !important;
+  opacity: 1;
+  object-fit: contain;
+  pointer-events: none;
+  transition: opacity var(--GP-DissolveMs) ease-in-out;
+  z-index: 2;
+}
+
+/* Spiral overlay */
+.galleryImageDraggable .gp-spiral {
+  position: absolute !important;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0.9;
+  transform: translate(-50%, -50%) scale(0.65) rotate(0deg);
+  left: 50%;
+  top: 50%;
+  width: 80%;
+  height: 80%;
+  animation: gp-spiral-anim var(--GP-TransMs) ease-out forwards;
+}
+.galleryImageDraggable .gp-spiral svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.galleryImageDraggable .gp-spiral path {
+  fill: none;
+  stroke: var(--SmartThemeQuoteColor); /* 1px themed outline */
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+@keyframes gp-spiral-anim {
+  0%   { opacity: 0.9; transform: translate(-50%, -50%) scale(0.65) rotate(0deg); }
+  100% { opacity: 0.0; transform: translate(-50%, -50%) scale(1.35) rotate(540deg); }
+}
+
+/* Push transition ghosts */
+.galleryImageDraggable .gp-push-ghost {
+  position: absolute !important;
+  object-fit: contain;
+  pointer-events: none;
+  z-index: 2;
+  will-change: transform, opacity;
+  transition: transform var(--GP-TransMs) ease-in-out, opacity var(--GP-TransMs) ease-in-out;
+}
+
+/* Compact transition select next to the speed slider */
+.gp-trans-select {
+  font-size: 14px;
+  line-height: 1;
+  width: 3.2em; /* just enough for the emoji */
+  height: 22px;
+  margin-left: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, #444);
+  background: var(--SmartThemeBlurTintColor, #222);
+  color: var(--SmartThemeTextColor, #ddd);
+}
+.gp-trans-select:hover,
+.gp-trans-select:focus {
+  box-shadow: 0 0 8px var(--SmartThemeUnderlineColor);
+}
