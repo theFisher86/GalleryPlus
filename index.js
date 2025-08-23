@@ -1,5 +1,7 @@
-/* GalleryPlus – index.js (spiral v2)
- * Slideshow ⏯️ + slider + transition menu + zoom + theme glows + rich spiral transition
+/* GalleryPlus – index.js (refined spiral)
+ * Slideshow ⏯️ + slider + transition menu + zoom + theme glows + refined spiral transition
+ * - Spiral is a smooth SVG spiral-mask reveal with a subtle themed glow (SmartThemeQuoteColor)
+ * - Red delay warning only when Spiral is selected and delay < 3s
  */
 
 (function () {
@@ -50,9 +52,9 @@
   }
 
   function applyThemeVars() {
-    // Hover glow for buttons/slider
+    // hover glow for buttons/slider uses ST underline color
     document.documentElement.style.setProperty('--GP-GlowColor', 'var(--SmartThemeUnderlineColor)');
-    // Spiral stroke color
+    // Spiral stroke color uses ST quote color
     const quote = cssVar('--SmartThemeQuoteColor', '#7aa2f7');
     document.documentElement.style.setProperty('--GP-SpiralStroke', quote);
   }
@@ -77,12 +79,11 @@
       m.addedNodes && m.addedNodes.forEach((n) => {
         if (!(n instanceof HTMLElement)) return;
         if (isViewer(n)) onNewViewer(n);
-        discoverViewers().forEach(onNewViewer);
       });
     }
   });
 
-  // =============== Controls (💾 🔍 ⏯️ + slider + transition) =================
+  // ==================== Controls (💾 🔍 ⏯️ + slider + transition) ====================
 
   function buildViewerChrome(root) {
     const pcb = $('.panelControlBar', root);
@@ -92,6 +93,7 @@
     if (!left) {
       left = document.createElement('div');
       left.className = 'gp-controls-left';
+      // place to the left of the panelControlBar (sibling before it)
       pcb.parentNode.insertBefore(left, pcb);
     } else {
       left.textContent = '';
@@ -142,34 +144,39 @@
     left.appendChild(speed);
     left.appendChild(sel);
 
-    // Wire handlers
+    // Wire
     btnSave.addEventListener('click', () => saveViewerRect(root));
     btnZoom.addEventListener('click', () => toggleZoom(root));
     btnPlay.addEventListener('click', () => toggleSlideshow(root));
+
+    const applyWarn = () =>
+      applySpeedWarning(speed, parseFloat(speed.value) || 3, sel.value);
+
     speed.addEventListener('input', () => {
       const secs = clamp(parseFloat(speed.value) || 3, 0.1, 10);
       gpSaveSettings({ slideshowSpeedSec: secs });
-      applySpeedWarning(speed, secs);
-      if (root.__gpSlideTimer) startSlideshow(root); // restart with new delay
+      applyWarn();
+      if (root.__gpSlideTimer) startSlideshow(root); // restart
     });
+
     sel.addEventListener('change', () => {
       gpSaveSettings({ slideshowTransition: sel.value });
+      applyWarn();
     });
 
-    // Initial warning state
-    applySpeedWarning(speed, parseFloat(speed.value) || 3);
+    // Initial
+    applyWarn();
 
-    // Tweak gallery title text
+    // Tweak gallery title text (once)
     const galTitle = document.querySelector('#gallery .dragTitle span');
     if (galTitle && galTitle.textContent.trim() !== 'Image GalleryPlus') {
       galTitle.textContent = 'Image GalleryPlus';
     }
   }
 
-  function applySpeedWarning(speedEl, secs) {
-    const warn = secs < 3;
+  function applySpeedWarning(speedEl, secs, transition) {
+    const warn = transition === 'spiral' && secs < 3;
     speedEl.classList.toggle('gp-speed-warning', warn);
-    // Inline visual guarantee (in case theme CSS doesn’t style input[type=range] deeply)
     if (warn) {
       speedEl.style.outline = '2px solid #ff4d4f';
       speedEl.style.boxShadow = '0 0 10px #ff4d4f';
@@ -179,7 +186,7 @@
     }
   }
 
-  // ============================== Zoom =======================================
+  // ================================== Zoom ===================================
 
   function wireZoom(root) {
     const img = $('img', root);
@@ -232,7 +239,7 @@
     gpSaveSettings({ hoverZoom: root.__gpZoomEnabled });
   }
 
-  // ========================== Save viewer rect ===============================
+  // ============================== Save rect ==================================
 
   function saveViewerRect(root) {
     const r = root.getBoundingClientRect();
@@ -314,7 +321,7 @@
 
     switch (type) {
       case 'spiral':
-        transitionSpiralRich(root, baseImg, nextSrc, end);
+        transitionSpiralRefined(root, baseImg, nextSrc, end);
         break;
       case 'pushH':
         transitionPush(root, baseImg, nextSrc, 'H', 350, end);
@@ -392,26 +399,19 @@
     });
   }
 
-  // Spiral v2 (mask reveal + edge glow + pulse)
-  function transitionSpiralRich(root, baseImg, nextSrc, done) {
+  // Spiral (refined “looks good” version)
+  // Uses an SVG spiral path as a mask that grows in length and thickness while rotating slightly.
+  // Adds a subtle SmartThemeQuoteColor glow stroke to keep it on-brand.
+  function transitionSpiralRefined(root, baseImg, nextSrc, done) {
     const delaySec = gpSettings().slideshowSpeedSec || 3;
-    const transMs  = Math.max(400, Math.round((delaySec * 1000) / 6)); // 1/6 of delay
-    const pulseMs  = Math.max(200, Math.round((delaySec * 1000) / 3)); // 1/3 of delay
+    const transMs  = Math.max(450, Math.round((delaySec * 1000) / 6)); // ~1/6 of delay
 
-    // 1) Edge glow around Image A
-    const quote = cssVar('--SmartThemeQuoteColor', '#7aa2f7');
-    const prevShadow = baseImg.style.boxShadow;
-    const prevOutline = baseImg.style.outline;
-    baseImg.style.boxShadow = `0 0 22px ${quote}, 0 0 44px ${quote}55`;
-    baseImg.style.outline = `1px solid ${quote}`;
-
-    // 2) SVG overlay with mask(reveal) for Image B
+    // Overlay SVG sized to viewer
     const box = root.getBoundingClientRect();
     const w = Math.max(100, Math.round(box.width));
     const h = Math.max(100, Math.round(box.height));
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.classList.add('gp-spiral');
     svg.setAttribute('width', w);
     svg.setAttribute('height', h);
     svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
@@ -419,13 +419,15 @@
     svg.style.inset = '0';
     svg.style.pointerEvents = 'none';
     svg.style.opacity = '1';
+    svg.style.transformOrigin = '50% 50%';
 
+    // defs + mask
     const defs = document.createElementNS(svg.namespaceURI, 'defs');
     const mask = document.createElementNS(svg.namespaceURI, 'mask');
     const maskId = `gpMask_${Math.random().toString(36).slice(2)}`;
     mask.setAttribute('id', maskId);
 
-    // Mask: black background (hide) + white spiral stroke (show)
+    // Mask background (hide by default)
     const mRect = document.createElementNS(svg.namespaceURI, 'rect');
     mRect.setAttribute('x', '0');
     mRect.setAttribute('y', '0');
@@ -434,45 +436,38 @@
     mRect.setAttribute('fill', 'black');
     mask.appendChild(mRect);
 
+    // Build Archimedean spiral path
     const path = document.createElementNS(svg.namespaceURI, 'path');
     path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', 'white'); // white shows in mask
-    path.setAttribute('stroke-width', '1'); // animated to 50
+    path.setAttribute('stroke', 'white'); // white = reveal in mask
+    path.setAttribute('stroke-width', '1');
     path.setAttribute('stroke-linecap', 'round');
     path.setAttribute('vector-effect', 'non-scaling-stroke');
 
     const cx = w / 2;
     const cy = h / 2;
-    const turnsToEdge = 1.0; // first reach to edges
-    const extraTurns   = 2.0; // then +2 rotations
-    const totalTurns   = turnsToEdge + extraTurns; // ~3
-    const steps = 1100;
-    const a = 0.6;
-    const b = Math.min(w, h) * 0.038;
+    const turns = 3.0; // total turns
+    const steps = 1400;
+    const maxR = Math.hypot(w, h) * 0.55;
+    const b = maxR / (Math.PI * 2 * turns); // r = b * theta
+    const a = 0; // start at center
 
     let d = '';
     for (let i = 0; i <= steps; i++) {
-      const t = (i / steps) * (Math.PI * 2 * totalTurns);
+      const t = (i / steps) * (Math.PI * 2 * turns);
       const r = a + b * t;
       const x = cx + r * Math.cos(t);
       const y = cy + r * Math.sin(t);
       d += (i === 0 ? 'M ' : ' L ') + x.toFixed(2) + ' ' + y.toFixed(2);
     }
     path.setAttribute('d', d);
+
+    // Use dasharray animation to reveal more length of the spiral over time
+    // and animate stroke-width to fill more area smoothly.
     mask.appendChild(path);
     defs.appendChild(mask);
 
-    // Color spiral stroke path (for visible overlay) – sits on top
-    const spiralStroke = document.createElementNS(svg.namespaceURI, 'path');
-    spiralStroke.setAttribute('d', d);
-    spiralStroke.setAttribute('fill', 'none');
-    spiralStroke.setAttribute('stroke', 'var(--GP-SpiralStroke)');
-    spiralStroke.setAttribute('stroke-width', '1');
-    spiralStroke.setAttribute('stroke-linecap', 'round');
-    spiralStroke.setAttribute('vector-effect', 'non-scaling-stroke');
-    spiralStroke.style.opacity = '0.5';
-
-    // Image B inside the mask
+    // Put B under a mask
     const imgB = document.createElementNS(svg.namespaceURI, 'image');
     imgB.setAttributeNS('http://www.w3.org/1999/xlink', 'href', nextSrc);
     imgB.setAttribute('x', '0');
@@ -482,68 +477,75 @@
     imgB.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     imgB.setAttribute('mask', `url(#${maskId})`);
 
+    // Themed spiral stroke overlay for a gentle glow
+    const stroke = document.createElementNS(svg.namespaceURI, 'path');
+    stroke.setAttribute('d', d);
+    stroke.setAttribute('fill', 'none');
+    stroke.setAttribute('stroke', 'var(--GP-SpiralStroke)');
+    stroke.setAttribute('stroke-width', '2');
+    stroke.setAttribute('stroke-linecap', 'round');
+    stroke.setAttribute('vector-effect', 'non-scaling-stroke');
+    stroke.style.filter = `drop-shadow(0 0 6px var(--GP-SpiralStroke)) drop-shadow(0 0 16px var(--GP-SpiralStroke))`;
+    stroke.style.opacity = '0.75';
+
     svg.appendChild(defs);
     svg.appendChild(imgB);
-    svg.appendChild(spiralStroke);
+    svg.appendChild(stroke);
     root.appendChild(svg);
 
-    // Animate:
-    // - stroke-width: 1 -> 50
-    // - group rotation: 0 -> 1080deg (3 turns) & scale 0.2 -> 1.15
-    // - stroke opacity pulse: 0.3–0.7 @ (delay/3)
-    // - base image fades under spiral
+    // Also fade base A for extra smoothness
+    const startOpacity = 1, endOpacity = 0;
+    const L = (() => {
+      try { return path.getTotalLength(); } catch { return 3000; }
+    })();
+
+    // Initialize dash so nothing is shown at t=0
+    path.style.strokeDasharray = `0 ${L}`;
+    path.style.strokeDashoffset = `${L}`;
+    stroke.style.strokeDasharray = `0 ${L}`;
+    stroke.style.strokeDashoffset = `${L}`;
+
     const startT = performance.now();
     const endT   = startT + transMs;
-
-    const centerX = w / 2;
-    const centerY = h / 2;
-    svg.style.transformOrigin = '50% 50%';
-    svg.style.transform = 'scale(0.2) rotate(0deg)';
-
-    const pulseAmp = 0.2;      // +/- 0.2 around 0.5 => 0.3..0.7
-    const baseOp0  = 1.0;
-    const baseOp1  = 0.0;
 
     function frame(now) {
       const p = clamp((now - startT) / transMs, 0, 1);
 
-      // stroke width growth
-      const sw = 1 + 49 * p;
-      path.setAttribute('stroke-width', String(sw));
-      spiralStroke.setAttribute('stroke-width', String(sw));
+      // Slight rotation for a bit of swirl momentum
+      svg.style.transform = `rotate(${15 * p}deg)`;
 
-      // spin & grow
-      const rot = 1080 * p; // 3 rotations total (to edge + 2 more)
-      const sca = 0.2 + 0.95 * p;
-      svg.style.transform = `scale(${sca}) rotate(${rot}deg)`;
+      // Grow the visible portion of the spiral along its length
+      const visibleLen = L * (0.15 + 0.85 * p); // start with a small chunk
+      path.style.strokeDasharray  = `${visibleLen} ${L}`;
+      path.style.strokeDashoffset = `${L - visibleLen}`;
+      stroke.style.strokeDasharray  = `${visibleLen} ${L}`;
+      stroke.style.strokeDashoffset = `${L - visibleLen}`;
 
-      // pulse opacity 0.3..0.7 with period = pulseMs
-      const phase = (now - startT) / pulseMs;
-      const op = 0.5 + pulseAmp * Math.sin(phase * Math.PI * 2);
-      spiralStroke.style.opacity = String(clamp(op, 0.3, 0.7));
+      // Thicken stroke to fill area progressively (smooth reveal)
+      const maxSW = Math.max(w, h) * 0.25; // thick enough to cover
+      const sw = 8 + (maxSW - 8) * easeOutCubic(p);
+      path.setAttribute('stroke-width', `${sw}`);
+      stroke.setAttribute('stroke-width', `${Math.max(2, sw * 0.06)}`);
 
-      // fade base A out under spiral
-      const baseOp = baseOp0 + (baseOp1 - baseOp0) * p;
-      baseImg.style.opacity = String(baseOp);
+      // Fade A underneath
+      const a = startOpacity + (endOpacity - startOpacity) * p;
+      baseImg.style.opacity = String(a);
 
       if (now < endT) {
         requestAnimationFrame(frame);
       } else {
-        // Commit to next image
+        // Commit to B
         baseImg.style.opacity = '1';
         baseImg.src = nextSrc;
-
-        // Cleanup
-        baseImg.style.boxShadow = prevShadow;
-        baseImg.style.outline   = prevOutline;
         svg.remove();
         done && done();
       }
     }
+
     requestAnimationFrame(frame);
   }
 
-  // ============================= Boot ========================================
+  // ============================ Boot & Utils =================================
 
   function init() {
     applyThemeVars();
@@ -562,11 +564,10 @@
     init();
   }
 
-  // =========================== Utilities =====================================
-
   function clamp(v, mn, mx) { return Math.min(mx, Math.max(mn, v)); }
+  function easeOutCubic(x){ return 1 - Math.pow(1 - x, 3); }
 
-  // Debug/controls
+  // Dev helpers exposed
   window.GalleryPlus = Object.assign(window.GalleryPlus || {}, {
     settings: gpSettings,
     saveSettings: gpSaveSettings,
