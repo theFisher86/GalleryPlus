@@ -150,15 +150,25 @@
     // 💾 save default size/pos
     const saveBtn = document.createElement('button');
     saveBtn.className = 'gp-btn gp-save';
-    saveBtn.title = 'Save as default size and location';
-    saveBtn.textContent = '💾';
+    const saveTip = 'Save as default size and location';
+    saveBtn.title = saveTip;
+    saveBtn.setAttribute('aria-label', saveTip);
+    const saveIcon = document.createElement('span');
+    saveIcon.setAttribute('aria-hidden', 'true');
+    saveIcon.textContent = '💾';
+    saveBtn.appendChild(saveIcon);
     saveBtn.addEventListener('click', () => saveDefaultRect(root));
 
     // 🔍 toggle hover zoom
     const zoomBtn = document.createElement('button');
     zoomBtn.className = 'gp-btn gp-zoom';
-    zoomBtn.title = 'Toggle hover zoom (off = scroll zoom + pan)';
-    zoomBtn.textContent = '🔍';
+    const zoomTip = 'Toggle hover zoom (off = scroll zoom + pan)';
+    zoomBtn.title = zoomTip;
+    zoomBtn.setAttribute('aria-label', zoomTip);
+    const zoomIcon = document.createElement('span');
+    zoomIcon.setAttribute('aria-hidden', 'true');
+    zoomIcon.textContent = '🔍';
+    zoomBtn.appendChild(zoomIcon);
     zoomBtn.classList.toggle('active', !!gpSettings().hoverZoom);
     zoomBtn.addEventListener('click', () => {
       const ns = !gpSettings().hoverZoom;
@@ -169,8 +179,13 @@
     // ⏯️ start/pause slideshow
     const playBtn = document.createElement('button');
     playBtn.className = 'gp-btn gp-play';
-    playBtn.title = 'Start / pause slideshow';
-    playBtn.textContent = '⏯️';
+    const playTip = 'Start / pause slideshow';
+    playBtn.title = playTip;
+    playBtn.setAttribute('aria-label', playTip);
+    const playIcon = document.createElement('span');
+    playIcon.setAttribute('aria-hidden', 'true');
+    playIcon.textContent = '⏯️';
+    playBtn.appendChild(playIcon);
     playBtn.addEventListener('click', () => {
       if (root.dataset.gpPlaying === '1') stopSlideshow(root);
       else startSlideshow(root);
@@ -179,8 +194,13 @@
     // ⛶ fullscreen
     const fsBtn = document.createElement('button');
     fsBtn.className = 'gp-btn gp-fs';
-    fsBtn.title = 'Fullscreen slideshow';
-    fsBtn.textContent = '⛶';
+    const fsTip = 'Fullscreen slideshow';
+    fsBtn.title = fsTip;
+    fsBtn.setAttribute('aria-label', fsTip);
+    const fsIcon = document.createElement('span');
+    fsIcon.setAttribute('aria-hidden', 'true');
+    fsIcon.textContent = '⛶';
+    fsBtn.appendChild(fsIcon);
     fsBtn.addEventListener('click', () => toggleFullscreen(root));
 
     // speed slider
