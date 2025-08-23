@@ -405,9 +405,10 @@
   // Adds a subtle SmartThemeQuoteColor glow stroke to keep it on-brand.
   function transitionSpiralRefined(root, baseImg, nextSrc, done) {
     const delaySec = gpSettings().slideshowSpeedSec || 3;
-    const transMs  = Math.max(450, Math.round((delaySec * 1000) / 3)); // ~1/3 of delay
+    // const transMs  = Math.max(450, Math.round((delaySec * 1000) / 6)); // ~1/6 of delay
+    let transMs = Math.round((delaySec * 1000) / 3); // ~1/3 of delay
+    transMs = Math.max(1000, transMs);               // ensure at least 1s
 
-    if (transMS < 1000){transMS = 1000};  // Make sure transition is at least 1 sec long
 
     // Overlay SVG sized to viewer
     const box = root.getBoundingClientRect();
