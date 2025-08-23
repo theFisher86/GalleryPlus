@@ -32,3 +32,8 @@ No build step is required to run the extension. To create a packaged build for d
 
 ## Contributing
 Pull requests and issue reports are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+=======
+A better version of the Silly Tavern Gallery
+
+## License
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
