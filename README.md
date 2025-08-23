@@ -1,5 +1,6 @@
 # GalleryPlus
 
+=======
 GalleryPlus is an extension for [SillyTavern](https://github.com/SillyTavern/SillyTavern) that enhances the built-in image gallery with powerful navigation and slideshow controls.
 
 ## Features
@@ -33,10 +34,22 @@ No build step is required to run the extension. To create a packaged build for d
 ## Contributing
 Pull requests and issue reports are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 =======
-A better version of the Silly Tavern Gallery
 
 ## Development
 
+Install dependencies:
+
+```bash
+npm install
+```
+
+Run linters and formatter:
+
+```bash
+npm run lint
+npm run format
+```
+=======
 Source code is organized in `src/` modules. To build the release script:
 
 ```
