@@ -814,8 +814,8 @@ function transitionSpiralSVG(root, baseImg, nextSrc, done) {
       maskPath.style.strokeWidth = '900';   // mask grows thick enough to reveal fully
 
       outlinePath.style.strokeDashoffset = '0';
-      outlinePath.style.strokeWidth = '12'; // thicker themed line on top
-      outlinePath.style.opacity = '0.3';    // fade a bit by the end
+      outlinePath.style.strokeWidth = '24'; // thicker themed line on top (default 12)
+      outlinePath.style.opacity = '0';    // fade a bit by the end (default 0.3)
 
       // Full 360° so we end aligned
       spin.style.transform = 'rotate(360deg)';
