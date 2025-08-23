@@ -1,16 +1,11 @@
-/* GalleryPlus – index.js (drop-in)
- * Adds slideshow (⏯️ + speed slider), transition selector (😶‍🌫️ / 😵‍💫 / ➡️ / ⬇️),
- * themed glows, spiral overlay, push transitions, and preserves existing viewer UX.
- *
- * Safe to re-load. Refrains from double-binding if already initialized.
+/* GalleryPlus – index.js (spiral v2)
+ * Slideshow ⏯️ + slider + transition menu + zoom + theme glows + rich spiral transition
  */
 
 (function () {
-  // ---- Guard for double load ------------------------------------------------
   if (window.__GalleryPlusLoaded) return;
   window.__GalleryPlusLoaded = true;
 
-  // ---- Constants / Helpers --------------------------------------------------
   const GP_NS = 'GalleryPlus';
   const GP_DEFAULTS = {
     enabled: true,
@@ -25,10 +20,9 @@
     slideshowTransition: 'crossfade', // 'crossfade' | 'spiral' | 'pushH' | 'pushV'
   };
 
-  const $ = (sel, root = document) => root.querySelector(sel);
+  const $  = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-  // Convenience: read ST extension settings bag
   function gpSettings() {
     try {
       const ctx = SillyTavern.getContext();
@@ -36,7 +30,6 @@
       bag[GP_NS] = { ...GP_DEFAULTS, ...(bag[GP_NS] || {}) };
       return bag[GP_NS];
     } catch {
-      // Fallback if ST context not ready yet
       window.__gpFallbackSettings = { ...GP_DEFAULTS, ...(window.__gpFallbackSettings || {}) };
       return window.__gpFallbackSettings;
     }
@@ -51,26 +44,22 @@
     }
   }
 
-  // Read a CSS var (computed) or return fallback
   function cssVar(name, fallback = '') {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name);
     return v && v.trim() ? v.trim() : fallback;
   }
 
-  // Expose/refresh our theme variables so CSS you already added can use them
   function applyThemeVars() {
-    // Hover glow should follow UnderlineColor
+    // Hover glow for buttons/slider
     document.documentElement.style.setProperty('--GP-GlowColor', 'var(--SmartThemeUnderlineColor)');
-    // Spiral stroke uses QuoteColor
+    // Spiral stroke color
     const quote = cssVar('--SmartThemeQuoteColor', '#7aa2f7');
     document.documentElement.style.setProperty('--GP-SpiralStroke', quote);
   }
 
-  // ---- Viewer discovery / lifecycle ----------------------------------------
   function isViewer(root) {
     return root?.classList?.contains('galleryImageDraggable') && root.querySelector('img');
   }
-
   function discoverViewers() {
     return $$('.draggable.galleryImageDraggable').filter(isViewer);
   }
@@ -78,42 +67,36 @@
   function onNewViewer(root) {
     if (!isViewer(root) || root.__gpWired) return;
     root.__gpWired = true;
-
     buildViewerChrome(root);
-    wireZoom(root);         // keeps your hover + wheel zoom behavior
-    wireSlideshow(root);    // ⏯️ + speed + transition
-    // keep drag/resize as-is (we're not touching MovingUI bindings)
+    wireZoom(root);
+    wireSlideshow(root);
   }
 
-  // Mutation observer to enhance newly opened viewers
   const mo = new MutationObserver((muts) => {
     for (const m of muts) {
       m.addedNodes && m.addedNodes.forEach((n) => {
         if (!(n instanceof HTMLElement)) return;
         if (isViewer(n)) onNewViewer(n);
-        // also catch nested img viewer (sometimes injected inside container)
         discoverViewers().forEach(onNewViewer);
       });
     }
   });
 
-  // ---- Controls chrome (💾 🔍 ⏯️ + slider + transition) ---------------------
+  // =============== Controls (💾 🔍 ⏯️ + slider + transition) =================
+
   function buildViewerChrome(root) {
-    // Insert controls container BEFORE the panelControlBar (top-left of window)
     const pcb = $('.panelControlBar', root);
     if (!pcb) return;
 
     let left = $('.gp-controls-left', root);
     if (!left) {
       left = document.createElement('div');
-      left.className = 'gp-controls-left'; // your CSS positions this TL above header
-      // Insert before panelControlBar so it sits "to the left" visually
+      left.className = 'gp-controls-left';
       pcb.parentNode.insertBefore(left, pcb);
     } else {
-      left.textContent = ''; // clear
+      left.textContent = '';
     }
 
-    // Buttons
     const btnSave = document.createElement('button');
     btnSave.className = 'gp-btn gp-save';
     btnSave.title = 'Save as default size and location';
@@ -129,7 +112,6 @@
     btnPlay.title = 'Start/Stop slideshow';
     btnPlay.textContent = '⏯️';
 
-    // Speed slider
     const speed = document.createElement('input');
     speed.type = 'range';
     speed.min = '0.1';
@@ -139,7 +121,6 @@
     speed.className = 'gp-speed gp-glow-on-hover';
     speed.title = 'Slideshow delay (seconds)';
 
-    // Transition selector (emoji narrow)
     const sel = document.createElement('select');
     sel.className = 'gp-trans';
     sel.title = 'Transition';
@@ -155,7 +136,6 @@
     });
     sel.value = gpSettings().slideshowTransition || 'crossfade';
 
-    // Append controls
     left.appendChild(btnSave);
     left.appendChild(btnZoom);
     left.appendChild(btnPlay);
@@ -167,34 +147,48 @@
     btnZoom.addEventListener('click', () => toggleZoom(root));
     btnPlay.addEventListener('click', () => toggleSlideshow(root));
     speed.addEventListener('input', () => {
-      const secs = Math.max(0.1, Math.min(10, parseFloat(speed.value) || 3));
+      const secs = clamp(parseFloat(speed.value) || 3, 0.1, 10);
       gpSaveSettings({ slideshowSpeedSec: secs });
-      // live-update if currently running
-      if (root.__gpSlideTimer) {
-        startSlideshow(root); // restarts timer with new delay
-      }
+      applySpeedWarning(speed, secs);
+      if (root.__gpSlideTimer) startSlideshow(root); // restart with new delay
     });
     sel.addEventListener('change', () => {
       gpSaveSettings({ slideshowTransition: sel.value });
     });
 
-    // Title tweak: Image Gallery -> Image GalleryPlus (gallery drawer)
+    // Initial warning state
+    applySpeedWarning(speed, parseFloat(speed.value) || 3);
+
+    // Tweak gallery title text
     const galTitle = document.querySelector('#gallery .dragTitle span');
     if (galTitle && galTitle.textContent.trim() !== 'Image GalleryPlus') {
       galTitle.textContent = 'Image GalleryPlus';
     }
   }
 
-  // ---- Zoom (wheel zoom + hover assist) -------------------------------------
+  function applySpeedWarning(speedEl, secs) {
+    const warn = secs < 3;
+    speedEl.classList.toggle('gp-speed-warning', warn);
+    // Inline visual guarantee (in case theme CSS doesn’t style input[type=range] deeply)
+    if (warn) {
+      speedEl.style.outline = '2px solid #ff4d4f';
+      speedEl.style.boxShadow = '0 0 10px #ff4d4f';
+    } else {
+      speedEl.style.outline = '';
+      speedEl.style.boxShadow = '';
+    }
+  }
+
+  // ============================== Zoom =======================================
+
   function wireZoom(root) {
     const img = $('img', root);
     if (!img) return;
 
-    img.style.objectFit = 'contain'; // never crop; respect viewer box
+    img.style.objectFit = 'contain';
     img.style.maxWidth = '100%';
     img.style.maxHeight = '100%';
 
-    // Persisted flag
     if (typeof root.__gpZoomEnabled !== 'boolean') {
       root.__gpZoomEnabled = !!gpSettings().hoverZoom;
     }
@@ -207,21 +201,17 @@
       img.style.transformOrigin = 'center center';
     }
 
-    // Wheel zoom
     root.addEventListener('wheel', (ev) => {
       if (!root.__gpZoomEnabled) return;
       ev.preventDefault();
-      const delta = -Math.sign(ev.deltaY) * 0.1; // zoom step
-      const next = Math.max(0.2, Math.min(8, scale + delta));
-      // keep center — simple approach: do not recompute tx/ty to mouse
-      scale = next;
+      const delta = -Math.sign(ev.deltaY) * 0.1;
+      scale = clamp(scale + delta, 0.2, 8);
       applyTransform();
     }, { passive: false });
 
-    // Drag image panning while zoomed (click+drag)
     let dragging = false, sx = 0, sy = 0;
     img.addEventListener('mousedown', (e) => {
-      if (scale <= 1) return; // no panning if not zoomed
+      if (scale <= 1) return;
       dragging = true; sx = e.clientX; sy = e.clientY;
       e.preventDefault();
     });
@@ -234,9 +224,7 @@
     });
     window.addEventListener('mouseup', () => (dragging = false));
 
-    root.__gpZoomReset = function () {
-      scale = 1; tx = 0; ty = 0; applyTransform();
-    };
+    root.__gpZoomReset = function () { scale = 1; tx = 0; ty = 0; applyTransform(); };
   }
   function toggleZoom(root) {
     root.__gpZoomEnabled = !root.__gpZoomEnabled;
@@ -244,7 +232,8 @@
     gpSaveSettings({ hoverZoom: root.__gpZoomEnabled });
   }
 
-  // ---- Save default rect (💾) -----------------------------------------------
+  // ========================== Save viewer rect ===============================
+
   function saveViewerRect(root) {
     const r = root.getBoundingClientRect();
     gpSaveSettings({
@@ -252,18 +241,16 @@
     });
   }
 
-  // ---- Slideshow ------------------------------------------------------------
+  // ============================= Slideshow ===================================
+
   function wireSlideshow(root) {
     if (root.__gpSlideWired) return;
     root.__gpSlideWired = true;
 
-    // Keyboard left/right nav (while viewer focused/hovered)
     root.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowRight') { advance(root, +1); }
       if (e.key === 'ArrowLeft')  { advance(root, -1); }
     });
-
-    // Preload neighbor on hover to keep memory modest
     root.addEventListener('mouseenter', () => preloadNeighbor(root, +1));
   }
 
@@ -273,10 +260,8 @@
   }
   function startSlideshow(root) {
     stopSlideshow(root);
-    const delayMs = Math.max(100, Math.min(10000, (gpSettings().slideshowSpeedSec || 3) * 1000));
-    root.__gpSlideTimer = setInterval(() => {
-      advance(root, +1);
-    }, delayMs);
+    const delayMs = clamp((gpSettings().slideshowSpeedSec || 3) * 1000, 100, 10000);
+    root.__gpSlideTimer = setInterval(() => advance(root, +1), delayMs);
     root.classList.add('gp-slideshow-active');
   }
   function stopSlideshow(root) {
@@ -299,10 +284,8 @@
   }
 
   function findNeighborSrc(root, dir) {
-    // Find all thumbnails in current gallery container and current src index
     const gal = document.querySelector('#dragGallery .nGY2GallerySub');
     if (!gal) return null;
-
     const thumbs = $$('.nGY2GThumbnailImg.nGY2TnImg2', gal);
     if (!thumbs.length) return null;
 
@@ -310,7 +293,6 @@
     const list = thumbs.map((n) => n.getAttribute('src') || n.parentElement?.style?.backgroundImage?.replace(/^url\("?|"?\)$/g,'') || '');
     let idx = list.findIndex((s) => s === current);
     if (idx < 0) {
-      // fallback: try to match filename only
       const name = current?.split('/').pop();
       idx = list.findIndex((s) => s.split('/').pop() === name);
     }
@@ -320,12 +302,11 @@
     return list[next];
   }
 
-  // ---- Transitions ----------------------------------------------------------
+  // ============================ Transitions ==================================
+
   function performTransition(root, nextSrc, type) {
     const baseImg = $('img', root);
     if (!baseImg) return;
-
-    // Avoid re-entrant transitions
     if (root.__gpTransitioning) return;
     root.__gpTransitioning = true;
 
@@ -333,9 +314,7 @@
 
     switch (type) {
       case 'spiral':
-        transitionCrossfade(root, baseImg, nextSrc, 450, () => {
-          addSpiralOverlay(root, 600);
-        }, end);
+        transitionSpiralRich(root, baseImg, nextSrc, end);
         break;
       case 'pushH':
         transitionPush(root, baseImg, nextSrc, 'H', 350, end);
@@ -350,9 +329,8 @@
     }
   }
 
-  // Crossfade by ghosting current image, swapping base src, then fading in
+  // Crossfade
   function transitionCrossfade(root, baseImg, nextSrc, durMs, beforeFx, done) {
-    const rect = baseImg.getBoundingClientRect();
     const ghost = baseImg.cloneNode(true);
     ghost.classList.add('gp-ghost');
     ghost.style.position = 'absolute';
@@ -364,7 +342,6 @@
     ghost.style.transition = `opacity ${durMs}ms ease`;
     root.appendChild(ghost);
 
-    // Swap base src hidden, then fade it up while ghost fades out
     baseImg.style.opacity = '0';
     baseImg.src = nextSrc;
 
@@ -374,18 +351,12 @@
       baseImg.style.transition = `opacity ${durMs}ms ease`;
       baseImg.style.opacity = '1';
       ghost.style.opacity = '0';
-      setTimeout(() => {
-        ghost.remove();
-        done && done();
-      }, durMs + 20);
+      setTimeout(() => { ghost.remove(); done && done(); }, durMs + 20);
     });
   }
 
-  // Push transition: move current out and next in along X or Y
+  // Push
   function transitionPush(root, baseImg, nextSrc, axis = 'H', durMs = 350, done) {
-    const rect = baseImg.getBoundingClientRect();
-
-    // create two overlay imgs
     const cur = baseImg.cloneNode(true);
     const nxt = baseImg.cloneNode(true);
     nxt.src = nextSrc;
@@ -405,18 +376,15 @@
     const distX = axis === 'H' ? 1 : 0;
     const distY = axis === 'V' ? 1 : 0;
 
-    // start positions
     cur.style.transform = 'translate(0,0)';
     nxt.style.transform = `translate(${distX ? 100 : 0}%, ${distY ? 100 : 0}%)`;
     nxt.style.opacity = '1';
 
-    // animate
     requestAnimationFrame(() => {
       cur.style.transform = `translate(${distX ? -100 : 0}%, ${distY ? -100 : 0}%)`;
       cur.style.opacity = '0';
       nxt.style.transform = 'translate(0,0)';
       setTimeout(() => {
-        // commit the real img source
         baseImg.src = nextSrc;
         cur.remove(); nxt.remove();
         done && done();
@@ -424,14 +392,23 @@
     });
   }
 
-  // Spiral overlay: SVG, 1px themed stroke, scales/rotates then fades
-  function addSpiralOverlay(root, durMs = 600) {
-    // Build SVG sized to viewer
+  // Spiral v2 (mask reveal + edge glow + pulse)
+  function transitionSpiralRich(root, baseImg, nextSrc, done) {
+    const delaySec = gpSettings().slideshowSpeedSec || 3;
+    const transMs  = Math.max(400, Math.round((delaySec * 1000) / 6)); // 1/6 of delay
+    const pulseMs  = Math.max(200, Math.round((delaySec * 1000) / 3)); // 1/3 of delay
+
+    // 1) Edge glow around Image A
+    const quote = cssVar('--SmartThemeQuoteColor', '#7aa2f7');
+    const prevShadow = baseImg.style.boxShadow;
+    const prevOutline = baseImg.style.outline;
+    baseImg.style.boxShadow = `0 0 22px ${quote}, 0 0 44px ${quote}55`;
+    baseImg.style.outline = `1px solid ${quote}`;
+
+    // 2) SVG overlay with mask(reveal) for Image B
     const box = root.getBoundingClientRect();
-    const w = Math.max(100, box.width);
-    const h = Math.max(100, box.height);
-    const cx = w / 2;
-    const cy = h / 2;
+    const w = Math.max(100, Math.round(box.width));
+    const h = Math.max(100, Math.round(box.height));
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.classList.add('gp-spiral');
@@ -441,66 +418,155 @@
     svg.style.position = 'absolute';
     svg.style.inset = '0';
     svg.style.pointerEvents = 'none';
-    svg.style.opacity = '0.85';
-    svg.style.transition = `transform ${durMs}ms ease, opacity ${durMs}ms ease`;
+    svg.style.opacity = '1';
 
-    // Archimedean spiral path
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const defs = document.createElementNS(svg.namespaceURI, 'defs');
+    const mask = document.createElementNS(svg.namespaceURI, 'mask');
+    const maskId = `gpMask_${Math.random().toString(36).slice(2)}`;
+    mask.setAttribute('id', maskId);
+
+    // Mask: black background (hide) + white spiral stroke (show)
+    const mRect = document.createElementNS(svg.namespaceURI, 'rect');
+    mRect.setAttribute('x', '0');
+    mRect.setAttribute('y', '0');
+    mRect.setAttribute('width', '100%');
+    mRect.setAttribute('height', '100%');
+    mRect.setAttribute('fill', 'black');
+    mask.appendChild(mRect);
+
+    const path = document.createElementNS(svg.namespaceURI, 'path');
     path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', 'var(--GP-SpiralStroke)');
-    path.setAttribute('stroke-width', '1');
+    path.setAttribute('stroke', 'white'); // white shows in mask
+    path.setAttribute('stroke-width', '1'); // animated to 50
+    path.setAttribute('stroke-linecap', 'round');
     path.setAttribute('vector-effect', 'non-scaling-stroke');
 
-    const turns = 3.2;          // ~3 turns
-    const steps = 850;          // smooth curve
-    const a = 1.0;
-    const b = Math.min(w, h) * 0.035; // spacing between arms
+    const cx = w / 2;
+    const cy = h / 2;
+    const turnsToEdge = 1.0; // first reach to edges
+    const extraTurns   = 2.0; // then +2 rotations
+    const totalTurns   = turnsToEdge + extraTurns; // ~3
+    const steps = 1100;
+    const a = 0.6;
+    const b = Math.min(w, h) * 0.038;
+
     let d = '';
     for (let i = 0; i <= steps; i++) {
-      const t = (i / steps) * (Math.PI * 2 * turns);
+      const t = (i / steps) * (Math.PI * 2 * totalTurns);
       const r = a + b * t;
       const x = cx + r * Math.cos(t);
       const y = cy + r * Math.sin(t);
       d += (i === 0 ? 'M ' : ' L ') + x.toFixed(2) + ' ' + y.toFixed(2);
     }
     path.setAttribute('d', d);
-    svg.appendChild(path);
+    mask.appendChild(path);
+    defs.appendChild(mask);
+
+    // Color spiral stroke path (for visible overlay) – sits on top
+    const spiralStroke = document.createElementNS(svg.namespaceURI, 'path');
+    spiralStroke.setAttribute('d', d);
+    spiralStroke.setAttribute('fill', 'none');
+    spiralStroke.setAttribute('stroke', 'var(--GP-SpiralStroke)');
+    spiralStroke.setAttribute('stroke-width', '1');
+    spiralStroke.setAttribute('stroke-linecap', 'round');
+    spiralStroke.setAttribute('vector-effect', 'non-scaling-stroke');
+    spiralStroke.style.opacity = '0.5';
+
+    // Image B inside the mask
+    const imgB = document.createElementNS(svg.namespaceURI, 'image');
+    imgB.setAttributeNS('http://www.w3.org/1999/xlink', 'href', nextSrc);
+    imgB.setAttribute('x', '0');
+    imgB.setAttribute('y', '0');
+    imgB.setAttribute('width', String(w));
+    imgB.setAttribute('height', String(h));
+    imgB.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    imgB.setAttribute('mask', `url(#${maskId})`);
+
+    svg.appendChild(defs);
+    svg.appendChild(imgB);
+    svg.appendChild(spiralStroke);
     root.appendChild(svg);
 
-    // Animate scale/rotate out
+    // Animate:
+    // - stroke-width: 1 -> 50
+    // - group rotation: 0 -> 1080deg (3 turns) & scale 0.2 -> 1.15
+    // - stroke opacity pulse: 0.3–0.7 @ (delay/3)
+    // - base image fades under spiral
+    const startT = performance.now();
+    const endT   = startT + transMs;
+
+    const centerX = w / 2;
+    const centerY = h / 2;
     svg.style.transformOrigin = '50% 50%';
-    svg.style.transform = 'scale(0.25) rotate(0deg)';
-    requestAnimationFrame(() => {
-      svg.style.transform = 'scale(1.05) rotate(360deg)';
-      svg.style.opacity = '0';
-      setTimeout(() => svg.remove(), durMs + 30);
-    });
+    svg.style.transform = 'scale(0.2) rotate(0deg)';
+
+    const pulseAmp = 0.2;      // +/- 0.2 around 0.5 => 0.3..0.7
+    const baseOp0  = 1.0;
+    const baseOp1  = 0.0;
+
+    function frame(now) {
+      const p = clamp((now - startT) / transMs, 0, 1);
+
+      // stroke width growth
+      const sw = 1 + 49 * p;
+      path.setAttribute('stroke-width', String(sw));
+      spiralStroke.setAttribute('stroke-width', String(sw));
+
+      // spin & grow
+      const rot = 1080 * p; // 3 rotations total (to edge + 2 more)
+      const sca = 0.2 + 0.95 * p;
+      svg.style.transform = `scale(${sca}) rotate(${rot}deg)`;
+
+      // pulse opacity 0.3..0.7 with period = pulseMs
+      const phase = (now - startT) / pulseMs;
+      const op = 0.5 + pulseAmp * Math.sin(phase * Math.PI * 2);
+      spiralStroke.style.opacity = String(clamp(op, 0.3, 0.7));
+
+      // fade base A out under spiral
+      const baseOp = baseOp0 + (baseOp1 - baseOp0) * p;
+      baseImg.style.opacity = String(baseOp);
+
+      if (now < endT) {
+        requestAnimationFrame(frame);
+      } else {
+        // Commit to next image
+        baseImg.style.opacity = '1';
+        baseImg.src = nextSrc;
+
+        // Cleanup
+        baseImg.style.boxShadow = prevShadow;
+        baseImg.style.outline   = prevOutline;
+        svg.remove();
+        done && done();
+      }
+    }
+    requestAnimationFrame(frame);
   }
 
-  // ---- Boot -----------------------------------------------------------------
+  // ============================= Boot ========================================
+
   function init() {
     applyThemeVars();
-    // Enhance any existing viewers
     discoverViewers().forEach(onNewViewer);
-
-    // Watch for new viewers
     mo.observe(document.body, { childList: true, subtree: true });
 
-    // Also, make sure gallery title says Image GalleryPlus
     const galTitle = document.querySelector('#gallery .dragTitle span');
     if (galTitle && galTitle.textContent.trim() !== 'Image GalleryPlus') {
       galTitle.textContent = 'Image GalleryPlus';
     }
   }
 
-  // Run now or on DOMContentLoaded
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init, { once: true });
   } else {
     init();
   }
 
-  // ---- Debug API (optional) -------------------------------------------------
+  // =========================== Utilities =====================================
+
+  function clamp(v, mn, mx) { return Math.min(mx, Math.max(mn, v)); }
+
+  // Debug/controls
   window.GalleryPlus = Object.assign(window.GalleryPlus || {}, {
     settings: gpSettings,
     saveSettings: gpSaveSettings,
