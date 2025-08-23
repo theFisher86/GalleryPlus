@@ -194,3 +194,59 @@
   position: absolute; z-index: 3;
   top: 8px; left: 10px; display: flex; gap: 6px;
 }
+
+/* ===== GalleryPlus: external viewer controls (left of the bar) ===== */
+.galleryImageDraggable {
+    /* most draggable panels already have absolute positioning; this is a safe default */
+    position: absolute;
+}
+
+/* Nudge the bar’s content to the right so it doesn’t sit under the external controls */
+.galleryImageDraggable .panelControlBar.gp-has-external-controls {
+    padding-left: 56px; /* space for two small buttons + breathing room */
+}
+
+/* Controls: placed at the top-left of the viewer, outside the bar */
+.galleryImageDraggable .gp-controls {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    display: flex;
+    gap: 8px;
+    z-index: 5; /* above the bar & image */
+    pointer-events: auto;
+}
+
+/* Button base */
+.galleryImageDraggable .gp-btn {
+    font-size: 18px;
+    line-height: 1;
+    padding: 4px 6px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--SmartThemeBodyColor, #fff);
+    backdrop-filter: blur(2px);
+    transition: box-shadow .2s ease, transform .1s ease, background .2s ease, text-shadow .2s ease, filter .2s ease;
+}
+
+/* Hover glow */
+.galleryImageDraggable .gp-btn:hover {
+    background: rgba(0, 0, 0, 0.35);
+    transform: translateY(-1px);
+    /* neon-ish glow; uses theme accent if present */
+    box-shadow:
+        0 0 8px rgba(0, 230, 255, 0.9),
+        0 0 16px rgba(0, 230, 255, 0.6);
+    text-shadow:
+        0 0 6px rgba(0, 230, 255, 0.9),
+        0 0 12px rgba(0, 230, 255, 0.75);
+    filter: drop-shadow(0 0 4px rgba(0, 230, 255, 0.8));
+}
+
+/* Optional: a little active feedback */
+.galleryImageDraggable .gp-btn:active {
+    transform: translateY(0);
+}
+

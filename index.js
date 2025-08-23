@@ -711,10 +711,30 @@
         b.style.padding = '0 4px';
       });
 
-      // insert before the "X" close button if present
-      const closeBtn = bar.querySelector('.dragClose');
-      if (closeBtn) bar.insertBefore(ctrls, closeBtn);
-      else bar.appendChild(ctrls);
+      // --- Place controls OUTSIDE the panelControlBar, anchored at top-left of the window ---
+      const bar = root.querySelector('.panelControlBar');
+
+      // Make sure the root can anchor absolutely-positioned children
+      const cs = getComputedStyle(root);
+      if (cs.position === 'static') {
+        root.style.position = 'relative';
+      }
+
+      // Add a marker class so CSS targets only gallery viewers
+      root.classList.add('galleryImageDraggable');
+
+      // Add a hook class on the bar so we can pad it in CSS (avoids overlap)
+      bar?.classList.add('gp-has-external-controls');
+
+      // Insert the controls at the root level (NOT inside the bar)
+      if (!root.querySelector('.gp-controls')) {
+        root.appendChild(ctrls);
+      }
+
+      // Position tweaks happen via CSS
+      ctrls.style.marginLeft = '';   // let CSS handle spacing
+      ctrls.style.marginRight = '';  // (clear any previous inline styles)
+
 
       ctrls.appendChild(save);
       ctrls.appendChild(zoom);
