@@ -75,6 +75,97 @@
   }
 
   // -------------------------------
+  // Settings panel + live updates
+  // -------------------------------
+  function applyGallerySettings() {
+    const s = gpSettings();
+    document.body.classList.toggle('gp-masonry-dense', !!s.masonryDense);
+    document.querySelectorAll('#dragGallery .nGY2GThumbnailLabel, #dragGallery .nGY2ItemLabel, #dragGallery figcaption').forEach(el => {
+      el.style.display = s.showCaptions ? '' : 'none';
+    });
+    const webp = !!s.webpOnly;
+    document.querySelectorAll('#dragGallery .nGY2GalleryItem, #dragGallery .nGY2GThumbnail, #dragGallery .nGY2TnItem').forEach(item => {
+      let src = '';
+      const img = item.querySelector('img.nGY2GThumbnailImg, .nGY2GThumbnailImage.nGY2TnImg');
+      if (img instanceof HTMLImageElement) src = img.src;
+      else if (img) {
+        const bg = img.style.backgroundImage || '';
+        const m = bg.match(/url\(["']?(.+?)["']?\)/);
+        if (m) src = new URL(m[1], location.href).href;
+      }
+      const isWebp = /\.webp(\?|$)/i.test(src);
+      item.style.display = webp && !isWebp ? 'none' : '';
+    });
+  }
+
+  function applySettings() {
+    applyGallerySettings();
+    const s = gpSettings();
+    document.querySelectorAll('.galleryImageDraggable').forEach(root => {
+      const speed = root.querySelector('.gp-speed');
+      if (speed) speed.value = String(s.slideshowSpeedSec || 3);
+      const sel = root.querySelector('.gp-transition');
+      if (sel) {
+        const v = s.slideshowTransition || 'crossfade';
+        sel.value = v;
+        root.dataset.gpTransition = v;
+      }
+    });
+  }
+
+  function wireSettingsPanel() {
+    const root = document.querySelector('#gp-settings-root');
+    if (!root || root.dataset.gpWired === '1') return;
+    root.dataset.gpWired = '1';
+    const s = gpSettings();
+
+    const bind = (sel, prop, transform) => {
+      const el = root.querySelector(sel);
+      if (!el) return;
+      const tr = transform || (v => v);
+      if (el.type === 'checkbox') {
+        el.checked = !!s[prop];
+        el.addEventListener('change', () => { gpSaveSettings({ [prop]: el.checked }); applySettings(); });
+      } else {
+        el.value = String(s[prop] ?? '');
+        el.addEventListener('change', () => { gpSaveSettings({ [prop]: tr(el.value) }); applySettings(); });
+      }
+    };
+
+    bind('#gp-enabled', 'enabled');
+    bind('#gp-openHeight', 'openHeight', v => parseInt(v, 10) || 800);
+    const openHeight = root.querySelector('#gp-openHeight');
+    const openHeightValue = root.querySelector('#gp-openHeightValue');
+    openHeightValue.textContent = String(s.openHeight || 800);
+    openHeight?.addEventListener('input', () => { openHeightValue.textContent = openHeight.value; });
+
+    bind('#gp-hoverZoom', 'hoverZoom');
+    bind('#gp-hoverZoomScale', 'hoverZoomScale', v => parseFloat(v) || 1);
+    const hz = root.querySelector('#gp-hoverZoomScale');
+    const hzVal = root.querySelector('#gp-hoverZoomScaleValue');
+    hzVal.textContent = (s.hoverZoomScale || 1).toFixed(2);
+    hz?.addEventListener('input', () => { hzVal.textContent = parseFloat(hz.value).toFixed(2); });
+
+    bind('#gp-masonryDense', 'masonryDense');
+    bind('#gp-showCaptions', 'showCaptions');
+    bind('#gp-webpOnly', 'webpOnly');
+    bind('#gp-slideshowSpeedSec', 'slideshowSpeedSec', v => {
+      let n = parseFloat(v); if (!Number.isFinite(n) || n < 0.1) n = 0.1; if (n > 10) n = 10; return n;
+    });
+    bind('#gp-slideshowTransition', 'slideshowTransition');
+
+    applySettings();
+  }
+
+  const settingsObserver = new MutationObserver(wireSettingsPanel);
+  settingsObserver.observe(document.body, { childList: true, subtree: true });
+  wireSettingsPanel();
+
+  const gallerySettingsObserver = new MutationObserver(applyGallerySettings);
+  gallerySettingsObserver.observe(document.body, { childList: true, subtree: true });
+  applyGallerySettings();
+
+  // -------------------------------
   // Theme helpers
   // -------------------------------
   function cssVar(name, fallback = '') {
