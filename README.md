@@ -11,3 +11,6 @@ npm run build
 ```
 
 This bundles the modules back into `index.js`.
+=======
+## License
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
