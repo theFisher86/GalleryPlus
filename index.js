@@ -576,7 +576,11 @@
   //   // defs + mask
   //   const defs = document.createElementNS(SVG_NS, 'defs');
   //   const mask = document.createElementNS(SVG_NS, 'mask');
-  //   const maskId = 'gpMask_' + Math.random().toString(36).slice(2);
+  //   const maskId =
+  //     'gpMask_' +
+  //     (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+  //       ? crypto.randomUUID()
+  //       : Date.now().toString(36));
   //   mask.setAttribute('id', maskId);
 
   //   const maskRect = document.createElementNS(SVG_NS, 'rect');
@@ -898,7 +902,11 @@ function transitionSpiralSVG(root, baseImg, nextSrc, done) {
   // defs + mask (keep the white stroke ONLY inside this mask)
   const defs = document.createElementNS(SVG_NS, 'defs');
   const mask = document.createElementNS(SVG_NS, 'mask');
-  const maskId = 'gpMask_' + Math.random().toString(36).slice(2);
+  const maskId =
+    'gpMask_' +
+    (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : Date.now().toString(36));
   mask.setAttribute('id', maskId);
   mask.setAttribute('maskUnits', 'userSpaceOnUse');
 
