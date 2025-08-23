@@ -1,0 +1,11 @@
+{
+  "name": "galleryplus",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "rollup src/index.js --format iife --file index.js"
+  },
+  "devDependencies": {
+    "rollup": "^4.0.0"
+  }
+}
