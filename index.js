@@ -412,3 +412,152 @@
     log('ready');
   });
 })();
+/* ===== GalleryPlus: viewer cross-fade installer ===== */
+(function gpInstallViewerCrossfade_bootstrap() {
+  // Avoid double-install if index.js is reloaded
+  if (window.__gpViewerObserver2?.disconnect) {
+    try { window.__gpViewerObserver2.disconnect(); } catch {}
+  }
+  window.__gpViewerObserver2 = null;
+
+  const ensureWrap = (img) => {
+    const existing = img.closest('.gp-imgwrap');
+    if (existing) return existing;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'gp-imgwrap';
+    // Only relative here; do NOT touch any draggable container styles.
+    wrap.style.position = 'relative';
+    wrap.style.display = 'block';
+
+    img.parentNode.insertBefore(wrap, img);
+    wrap.appendChild(img);
+
+    // Keep contain layout unless already customized elsewhere
+    if (!img.style.display) img.style.display = 'block';
+    if (!img.style.objectFit) img.style.objectFit = 'contain';
+
+    return wrap;
+  };
+
+  const attachCrossfade = (img, duration = 240) => {
+    if (!img || img.__gpFade2Attached) return;
+    img.__gpFade2Attached = true;
+
+    const wrap = ensureWrap(img);
+
+    const obs = new MutationObserver((list) => {
+      for (const m of list) {
+        if (m.type !== 'attributes' || m.attributeName !== 'src') continue;
+        const oldSrc = m.oldValue;
+        const newSrc = img.getAttribute('src');
+        if (!oldSrc || oldSrc === newSrc) continue;
+
+        // Overlay with previous image on top
+        const overlay = document.createElement('img');
+        overlay.className = 'gp-fade-overlay';
+        overlay.src = oldSrc;
+        overlay.style.position = 'absolute';
+        overlay.style.inset = '0';
+        overlay.style.width = '100%';
+        overlay.style.height = '100%';
+        overlay.style.objectFit = getComputedStyle(img).objectFit || 'contain';
+        overlay.style.pointerEvents = 'none';
+        overlay.style.opacity = '1';
+        overlay.style.transition = `opacity ${duration}ms ease`;
+        wrap.appendChild(overlay);
+
+        // Fade new image in, then fade old out
+        img.style.transition = `opacity ${duration}ms ease`;
+        img.style.opacity = '0';
+
+        const onNewLoad = () => {
+          requestAnimationFrame(() => {
+            img.style.opacity = '1';
+            requestAnimationFrame(() => {
+              overlay.style.opacity = '0';
+              setTimeout(() => overlay.remove(), duration + 50);
+            });
+          });
+        };
+
+        if (img.complete && img.naturalWidth > 0) onNewLoad();
+        else img.addEventListener('load', onNewLoad, { once: true });
+      }
+    });
+
+    obs.observe(img, { attributes: true, attributeOldValue: true, attributeFilter: ['src'] });
+    img.__gpFade2Observer = obs;
+  };
+
+  // Attach to any current viewers
+  const attachNow = () => {
+    document.querySelectorAll('.galleryImageDraggable img').forEach((img) => attachCrossfade(img));
+  };
+
+  // Expose a one-shot installer GP can call from init()
+  window.gpInstallViewerCrossfade = function gpInstallViewerCrossfade() {
+    attachNow();
+    // Watch for future viewer windows
+    window.__gpViewerObserver2 = new MutationObserver((mut) => {
+      for (const m of mut) {
+        m.addedNodes && m.addedNodes.forEach(n => {
+          if (!(n instanceof HTMLElement)) return;
+          if (n.matches?.('.galleryImageDraggable img')) attachCrossfade(n);
+          n.querySelectorAll?.('.galleryImageDraggable img').forEach(img => attachCrossfade(img));
+        });
+      }
+    });
+    window.__gpViewerObserver2.observe(document.body, { childList: true, subtree: true });
+  };
+})();
+
+// === [GalleryPlus] theme + dissolve boot (safe to place at EOF) ===
+(function gpBootThemeAndFade() {
+  const once = (fn) => { let ran = false; return () => { if (ran) return; ran = true; fn(); }; };
+
+  const boot = once(() => {
+    try {
+      // Apply theme glow + dissolve styles if your helper block defines them
+      try { typeof gpApplyThemeGlow === 'function' && gpApplyThemeGlow(); } catch (e) { console.warn('[GalleryPlus] gpApplyThemeGlow error', e); }
+      try { typeof gpApplyDissolveStyles === 'function' && gpApplyDissolveStyles(); } catch (e) { console.warn('[GalleryPlus] gpApplyDissolveStyles error', e); }
+
+      // Re-apply glow when theme classes/vars change (works across ST themes)
+      const themeObserver = new MutationObserver(() => {
+        try { typeof gpApplyThemeGlow === 'function' && gpApplyThemeGlow(); } catch (e) { /* no-op */ }
+      });
+      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
+
+      // When a new viewer is inserted, enhance it once
+      const wireViewer = (root) => {
+        if (!root || root.dataset.gpWired === '1') return;
+        root.dataset.gpWired = '1';
+        try { typeof gpEnhanceViewer === 'function' && gpEnhanceViewer(root); } catch (e) { console.warn('[GalleryPlus] gpEnhanceViewer error', e); }
+      };
+
+      const mo = new MutationObserver((muts) => {
+        for (const m of muts) {
+          for (const n of m.addedNodes || []) {
+            if (n.nodeType !== 1) continue;
+            if (n.matches?.('.galleryImageDraggable')) wireViewer(n);
+            else wireViewer(n.querySelector?.('.galleryImageDraggable'));
+          }
+        }
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+
+      // Enhance any viewer already open on boot
+      document.querySelectorAll('.galleryImageDraggable').forEach(wireViewer);
+
+      console.log('[GalleryPlus] theme + dissolve boot ready');
+    } catch (e) {
+      console.warn('[GalleryPlus] boot failure', e);
+    }
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot, { once: true });
+  } else {
+    boot();
+  }
+})();

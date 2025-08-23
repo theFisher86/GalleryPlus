@@ -306,3 +306,28 @@
   font-size: 12px;
   opacity: 0.85;
 }
+
+/* ===== GalleryPlus: theme glow + viewer fade overlay ===== */
+
+/* Use SillyTavern's Quote color for glows */
+#gallery.draggable,
+.galleryImageDraggable.draggable,
+#gallery.draggable .galleryImageDraggable.draggable {
+  /* soft outer glow */
+  box-shadow: 0 0 24px 2px var(--SmartThemeQuoteColor, rgba(122,162,247,0.35));
+}
+
+/* Left control icons: themed glow on hover */
+.gp-leftControls .gp-icon:hover {
+  filter: drop-shadow(0 0 8px var(--SmartThemeQuoteColor, rgba(122,162,247,0.9)));
+  transform: translateY(-1px);
+  transition: filter 120ms ease, transform 120ms ease;
+}
+
+/* Cross-fade overlay lives inside a small wrapper around the <img>.
+   Only overlay needs CSS; we leave container positioning to GP/MovingUI. */
+.gp-imgwrap {}
+.gp-fade-overlay {
+  will-change: opacity;
+  pointer-events: none; /* never block dragging/resizing */
+}
