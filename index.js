@@ -119,6 +119,7 @@
     speed.min = '0.1';
     speed.max = '10';
     speed.step = '0.1';
+    speed.width = '40%';
     speed.value = String(gpSettings().slideshowSpeedSec || 3);
     speed.className = 'gp-speed gp-glow-on-hover';
     speed.title = 'Slideshow delay (seconds)';
