@@ -1,0 +1,18 @@
+{
+  "name": "galleryplus",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier . --write"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "rollup src/index.js --format iife --file index.js"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5",
+    "rollup": "^4.0.0"
+  }
+}
