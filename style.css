@@ -23,6 +23,8 @@
 #gallery {
   display: flex;
   flex-direction: column;
+  resize:both;
+  overflow:auto;
 }
 
 /* Fill the remaining drawer space with the gallery container */
@@ -250,3 +252,57 @@
     transform: translateY(0);
 }
 
+/* === Resizing: ensure windows can be resized === */
+#gallery,
+.galleryImageDraggable {
+  resize: both;
+  overflow: auto; /* required for CSS resize handles to appear */
+}
+
+/* === Use Quote Text theme color for glows (with safe fallback) === */
+:root {
+  /* If your theme already defines this, great; fallback keeps it bright but not blinding */
+  --GP-GlowColor: var(--SmartThemeQuoteTextColor, #00e6ff);
+}
+
+/* External controls (already present, just updating hover glow color) */
+.galleryImageDraggable .gp-btn:hover {
+  background: rgba(0, 0, 0, 0.35);
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 8px var(--GP-GlowColor),
+    0 0 16px color-mix(in srgb, var(--GP-GlowColor) 65%, transparent);
+  text-shadow:
+    0 0 6px var(--GP-GlowColor),
+    0 0 12px color-mix(in srgb, var(--GP-GlowColor) 65%, transparent);
+  filter: drop-shadow(0 0 4px var(--GP-GlowColor));
+}
+
+/* Window glow under Gallery + Viewers */
+#gallery.draggable,
+.galleryImageDraggable.draggable {
+  /* soft base shadow + themed glow */
+  box-shadow:
+    0 10px 24px rgba(0,0,0,.35),
+    0 0 16px color-mix(in srgb, var(--GP-GlowColor) 35%, transparent);
+}
+
+/* Slideshow controls next to ⏯️ (hidden unless playing) */
+.galleryImageDraggable .gp-slide-controls {
+  display: none;
+  align-items: center;
+  gap: 6px;
+}
+.galleryImageDraggable.gp-slideshow-on .gp-slide-controls {
+  display: flex;
+}
+
+/* Range slider styling + theme accent */
+.galleryImageDraggable .gp-delay {
+  width: 110px;
+  accent-color: var(--GP-GlowColor);
+}
+.galleryImageDraggable .gp-slide-label {
+  font-size: 12px;
+  opacity: 0.85;
+}

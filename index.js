@@ -259,6 +259,48 @@
     window.addEventListener("resize", removeIfDetached);
   }
 
+  // ===== GalleryPlus slideshow helpers =====
+  const GP_SLIDES = window.__gpSlideMap || (window.__gpSlideMap = new WeakMap());
+
+  function gpGetSlideState(root) {
+    let s = GP_SLIDES.get(root);
+    if (!s) { s = { timer: null, interval: 3000 }; GP_SLIDES.set(root, s); }
+    return s;
+  }
+  function gpGalleryList() {
+    const nodes = document.querySelectorAll('#dragGallery .nGY2GThumbnailImg');
+    return Array.from(nodes).map(n => n.getAttribute('src') || n.src).filter(Boolean);
+  }
+  function gpBase(p) { return (p || '').split('/').pop(); }
+  function gpSwapWithFade(img, nextSrc) {
+    if (!img) return;
+    img.style.transition = 'opacity 250ms ease';
+    img.style.opacity = '0';
+    const on = () => { img.style.opacity = '1'; img.removeEventListener('load', on); };
+    img.addEventListener('load', on, { once: true });
+    img.src = nextSrc;
+  }
+  function gpStartSlideshow(root) {
+    const s = gpGetSlideState(root);
+    if (s.timer) return;
+    const img = root.querySelector('img');
+    const tick = () => {
+      const list = gpGalleryList(); if (!list.length || !img) return;
+      const cur = gpBase(img.getAttribute('src') || img.src);
+      let i = list.findIndex(x => gpBase(x) === cur);
+      i = (i + 1) % list.length;
+      gpSwapWithFade(img, list[i]);
+    };
+    s.timer = setInterval(tick, s.interval);
+    root.classList.add('gp-slideshow-on');
+  }
+  function gpStopSlideshow(root) {
+    const s = gpGetSlideState(root);
+    if (s.timer) { clearInterval(s.timer); s.timer = null; }
+    root.classList.remove('gp-slideshow-on');
+  }
+
+
   // Help with debugging
   window.GP_DEBUG = { enhance: gpEnhanceViewer, applyZoom: applyZoomMode };
   
