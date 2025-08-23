@@ -381,6 +381,7 @@
 /* Speed slider glow on hover/active */
 .gp-speed-wrap input[type="range"].gp-speed-range {
   outline: none;
+  width: 40%;
 }
 .gp-speed-wrap input[type="range"].gp-speed-range:hover,
 .gp-speed-wrap input[type="range"].gp-speed-range:focus {
