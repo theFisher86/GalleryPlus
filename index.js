@@ -100,8 +100,6 @@
     }
   }
   const galleryObserver = new MutationObserver(applyGalleryTitle);
-  galleryObserver.observe(document.body, { childList: true, subtree: true });
-  applyGalleryTitle();
 
   // -------------------------------
   // Observe new viewer windows
@@ -115,7 +113,42 @@
       }
     }
   });
-  viewerObserver.observe(document.body, { childList: true, subtree: true });
+
+  let observersActive = false;
+
+  function startObservers() {
+    if (observersActive) return;
+    galleryObserver.observe(document.body, { childList: true, subtree: true });
+    viewerObserver.observe(document.body, { childList: true, subtree: true });
+    applyGalleryTitle();
+    document.querySelectorAll('.draggable.galleryImageDraggable')?.forEach(wireViewer);
+    observersActive = true;
+  }
+
+  function stopObservers() {
+    if (!observersActive) return;
+    galleryObserver.disconnect();
+    viewerObserver.disconnect();
+    observersActive = false;
+  }
+
+  if (gpSettings().enabled) startObservers();
+
+  function watchEnabledToggle() {
+    const cb = document.getElementById('gp-enabled');
+    if (cb && cb.dataset.gpBound !== '1') {
+      cb.dataset.gpBound = '1';
+      cb.checked = gpSettings().enabled;
+      cb.addEventListener('change', () => {
+        const en = cb.checked;
+        gpSaveSettings({ enabled: en });
+        if (en) startObservers(); else stopObservers();
+      });
+    }
+  }
+  watchEnabledToggle();
+  const settingsObserver = new MutationObserver(watchEnabledToggle);
+  settingsObserver.observe(document.body, { childList: true, subtree: true });
 
   // -------------------------------
   // Wire viewer
