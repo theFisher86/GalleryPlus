@@ -753,6 +753,48 @@
         b.style.padding = '0 4px';
       });
 
+      // --- Slideshow: ⏯️ button + delay slider ---
+      const btnPlay = document.createElement('button');
+      btnPlay.className = 'gp-btn gp-slide';
+      btnPlay.title = 'Start/stop slideshow';
+      btnPlay.textContent = '⏯️';
+
+      const slideWrap = document.createElement('div');
+      slideWrap.className = 'gp-slide-controls';
+
+      const delay = document.createElement('input');
+      delay.type = 'range';
+      delay.min = '1000';
+      delay.max = '10000';
+      delay.step = '500';
+      delay.className = 'gp-delay';
+      delay.value = String(gpGetSlideState(root).interval);
+
+      const delayLabel = document.createElement('span');
+      delayLabel.className = 'gp-slide-label';
+      delayLabel.textContent = `${Math.round(gpGetSlideState(root).interval / 1000)}s`;
+
+      slideWrap.append(delay, delayLabel);
+      ctrls.append(btnPlay, slideWrap);
+
+      // Wire up ⏯️
+      btnPlay.addEventListener('click', () => {
+        const s = gpGetSlideState(root);
+        s.timer ? gpStopSlideshow(root) : gpStartSlideshow(root);
+      });
+
+      // Wire up delay slider
+      delay.addEventListener('input', () => {
+        const s = gpGetSlideState(root);
+        s.interval = +delay.value;
+        delayLabel.textContent = `${Math.round(s.interval / 1000)}s`;
+        if (s.timer) { gpStopSlideshow(root); gpStartSlideshow(root); }
+      });
+
+      // Clean up when viewer is closed
+      root.querySelector('.dragClose')?.addEventListener('click', () => gpStopSlideshow(root), { once: true });
+
+
       // --- Place controls OUTSIDE the panelControlBar, anchored at top-left of the window ---
       const bar = root.querySelector('.panelControlBar');
 
